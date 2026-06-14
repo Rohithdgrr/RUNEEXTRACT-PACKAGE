@@ -124,7 +124,8 @@ class Document:
                 metadata={"strategy": "fixed_size", "size": size, "overlap": overlap}
             ))
             
-            start += size - overlap
+            step = max(size - overlap, 1)
+            start += step
             chunk_id += 1
 
         return chunks

@@ -105,7 +105,21 @@ class ExtractorRouter:
             file_path: Path to the file
             
         Returns:
-            Source type string (e.g., "pdf", "docx", "html")
+            Source type string (e.g., "pdf", "docx", "html", "markdown")
         """
         path = Path(file_path)
-        return path.suffix.lower().lstrip('.')
+        ext = path.suffix.lower().lstrip('.')
+        # Map extensions to canonical names
+        ext_map = {
+            'md': 'markdown',
+            'markdown': 'markdown',
+            'doc': 'docx',
+            'docx': 'docx',
+            'ppt': 'pptx',
+            'pptx': 'pptx',
+            'xls': 'xlsx',
+            'xlsx': 'xlsx',
+            'htm': 'html',
+            'html': 'html',
+        }
+        return ext_map.get(ext, ext)

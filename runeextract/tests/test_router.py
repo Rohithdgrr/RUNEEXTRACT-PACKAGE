@@ -14,6 +14,8 @@ def test_supported_extensions():
     assert ".docx" in extensions
     assert ".html" in extensions
     assert ".md" in extensions
+    assert ".pptx" in extensions
+    assert ".xlsx" in extensions
 
 
 def test_get_source_type():
@@ -22,6 +24,9 @@ def test_get_source_type():
     assert ExtractorRouter.get_source_type("test.docx") == "docx"
     assert ExtractorRouter.get_source_type("test.html") == "html"
     assert ExtractorRouter.get_source_type("test.md") == "markdown"
+    assert ExtractorRouter.get_source_type("test.markdown") == "markdown"
+    assert ExtractorRouter.get_source_type("test.pptx") == "pptx"
+    assert ExtractorRouter.get_source_type("test.xlsx") == "xlsx"
 
 
 def test_get_extractor_unsupported():

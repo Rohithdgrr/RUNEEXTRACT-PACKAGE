@@ -63,7 +63,7 @@ class MarkdownExtractor(BaseExtractor):
         for token in tokens:
             if token.type == 'heading_open':
                 level = token.tag
-                text += f"\n{'#' * int(level)} "
+                text += "#" * int(level[1:]) + "\n\n"
             elif token.type == 'heading_close':
                 text += "\n\n"
             elif token.type == 'paragraph_open':

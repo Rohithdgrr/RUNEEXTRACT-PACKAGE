@@ -97,8 +97,8 @@ class Document:
 |--------|--------|-------------------|
 | PDF | ✅ MVP | text, tables, images, metadata |
 | DOCX | ✅ MVP | paragraphs, tables, images, headers, footers |
-| PPTX | ✅ v0.2 | slides, speaker notes, images |
-| XLSX | ✅ v0.2 | worksheets, tables, formulas |
+| PPTX | ✅ MVP | slides, speaker notes, images |
+| XLSX | ✅ MVP | worksheets, tables, formulas |
 | HTML | ✅ MVP | headings, paragraphs, tables, links |
 | Markdown | ✅ MVP | headings, lists, code blocks, tables |
 | Images | ✅ v0.2 | text (OCR), bounding boxes, confidence |
@@ -112,6 +112,8 @@ class Document:
 
 - **PDF**: Extract text, tables, images, and metadata using PyMuPDF and pdfplumber
 - **DOCX**: Extract paragraphs, tables, images, headers, and footers
+- **PPTX**: Extract slides, text, tables, and images using python-pptx
+- **XLSX**: Extract worksheets, tables, and metadata using openpyxl
 - **HTML**: Parse headings, paragraphs, tables, and links with BeautifulSoup
 - **Markdown**: Extract headings, lists, code blocks, and tables
 
@@ -330,30 +332,23 @@ Return
 
 ## Development Roadmap
 
-### v0.1 (MVP)
+### v0.1 (MVP) — ✅ Current Release
 - ✅ PDF extraction
 - ✅ DOCX extraction
-- ✅ HTML extraction
-- ✅ Markdown extraction
-
-### v0.2
 - ✅ PPTX extraction
 - ✅ XLSX extraction
-- ✅ OCR support (images and scanned PDFs)
-
-### v0.3
-- ✅ YouTube integration
-- ✅ Notion import
-
-### v0.4
+- ✅ HTML extraction
+- ✅ Markdown extraction
+- ✅ CLI interface
 - ✅ Chunking strategies
-- ✅ Advanced metadata extraction
+- ✅ Plugin system
 
-### v1.0
-- ✅ Plugin ecosystem
-- ✅ Async processing
-- ✅ CLI tool
-- ✅ Production stability
+### v0.2 (Planned)
+- ⏳ OCR support (images and scanned PDFs)
+- ⏳ YouTube integration
+- ⏳ Notion import
+- ⏳ Async processing
+- ⏳ AI features
 
 ## Contributing
 
@@ -363,7 +358,7 @@ Contributions are welcome! Please see our [Contributing Guidelines](CONTRIBUTING
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/runeextract.git
+git clone https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE.git
 cd runeextract
 
 # Create virtual environment
@@ -410,9 +405,9 @@ Built with inspiration from the document processing community and the need for a
 
 ## Contact
 
-- GitHub: [yourusername/runeextract](https://github.com/yourusername/runeextract)
-- Issues: [GitHub Issues](https://github.com/yourusername/runeextract/issues)
-- Discussions: [GitHub Discussions](https://github.com/yourusername/runeextract/discussions)
+- GitHub: [Rohithdgrr/RUNEEXTRACT-PACKAGE](https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE)
+- Issues: [GitHub Issues](https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE/issues)
+- Discussions: [GitHub Discussions](https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE/discussions)
 
 ---
 
