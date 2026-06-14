@@ -2,12 +2,40 @@
 RuneExtract - One extraction API for every document type.
 """
 
-from typing import Optional, List
+import logging
+import os
+import tempfile
+from typing import Optional, List, Callable
 from runeextract.core.router import ExtractorRouter
 from runeextract.models.document import Document, ChunkingStrategy
+from runeextract.config import get_config
+from runeextract.exceptions import ExtractionError
 
-__version__ = "0.1.0"
-__all__ = ["extract", "extract_many", "Document", "ChunkingStrategy"]
+__version__ = "0.3.0"
+__all__ = [
+    "extract", "extract_many", "extract_many_with_errors",
+    "extract_async", "extract_many_async",
+    "extract_stream", "extract_from_bytes", "extract_from_string",
+    "Document", "ChunkingStrategy", "get_config", "set_config"
+]
+
+logger = logging.getLogger(__name__)
+
+ProgressCallback = Optional[Callable[[str, int, int], None]]
+
+_cache_instance = None
+
+
+def _get_cache():
+    global _cache_instance
+    if _cache_instance is None:
+        from runeextract.core.cache import ExtractionCache
+        _cache_instance = ExtractionCache()
+    return _cache_instance
+
+
+def _noop_progress(stage: str, current: int, total: int) -> None:
+    pass
 
 
 def extract(
@@ -19,6 +47,8 @@ def extract(
     chunking_strategy: Optional[str] = None,
     chunk_size: int = 1000,
     chunk_overlap: int = 100,
+    use_cache: bool = False,
+    progress_callback: ProgressCallback = None,
     **kwargs
 ) -> Document:
     """
@@ -33,13 +63,17 @@ def extract(
         tables: Extract tables from the document
         images: Extract images from the document
         metadata: Extract document metadata
-        chunking_strategy: Strategy for chunking text (by_page, by_heading, semantic, fixed_size)
-        chunk_size: Target chunk size in characters
-        chunk_overlap: Character overlap between chunks
+        chunking_strategy: Strategy for chunking text (by_page, by_heading, semantic, fixed_size, by_token)
+        chunk_size: Target chunk size (characters for most strategies, tokens for by_token)
+        chunk_overlap: Overlap between chunks (characters or tokens)
+        use_cache: Cache the extraction result on disk (default: False)
         **kwargs: Additional extractor-specific options
         
     Returns:
         Document object with extracted content
+        
+    Raises:
+        ExtractionError: If extraction fails
         
     Example:
         >>> from runeextract import extract
@@ -48,33 +82,167 @@ def extract(
         >>> print(doc.tables)
         >>> print(doc.chunks())
     """
+    cb = progress_callback or _noop_progress
+
+    cb("resolve_config", 0, 3)
+    config = get_config().merge_options(
+        ocr=ocr, tables=tables, images=images, metadata=metadata,
+        chunking_strategy=chunking_strategy, chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap, use_cache=use_cache, **kwargs
+    )
+
+    cb("build_options", 1, 3)
     options = {
-        'ocr': ocr,
-        'tables': tables,
-        'images': images,
-        'metadata': metadata,
-        'chunking_strategy': chunking_strategy,
-        'chunk_size': chunk_size,
-        'chunk_overlap': chunk_overlap,
+        'ocr': config.ocr,
+        'tables': config.tables,
+        'images': config.images,
+        'metadata': config.metadata,
+        'chunking_strategy': config.chunking_strategy,
+        'chunk_size': config.chunk_size,
+        'chunk_overlap': config.chunk_overlap,
+        'max_file_size': config.max_file_size,
         **kwargs
     }
-    
-    # Get the appropriate extractor
+
+    if use_cache:
+        cache = _get_cache()
+        cached = cache.get(file_path, options)
+        if cached is not None:
+            logger.debug(f"Cache hit for {file_path}")
+            return cached
+
+    cb("get_extractor", 2, 3)
+    if os.path.isdir(file_path):
+        raise ExtractionError(
+            f"Path is a directory, not a file: {file_path}",
+            file_path=file_path, error_code="E041"
+        )
     extractor = ExtractorRouter.get_extractor(file_path, **options)
-    
-    # Extract content
+
+    cb("extract", 0, 1)
     document = extractor.extract(file_path)
-    
-    # Apply chunking if requested
-    if chunking_strategy:
-        strategy = ChunkingStrategy(chunking_strategy)
-        document.chunks(strategy=strategy, size=chunk_size, overlap=chunk_overlap)
-    
+
+    if use_cache:
+        cache.set(file_path, options, document)
+        logger.debug(f"Cached result for {file_path}")
+
+    if chunking_strategy or config.chunking_strategy:
+        strategy_str = chunking_strategy or config.chunking_strategy
+        strategy = ChunkingStrategy(strategy_str)
+        document.chunks(strategy=strategy, size=config.chunk_size, overlap=config.chunk_overlap)
+
     return document
+
+
+def extract_from_bytes(
+    data: bytes,
+    filename: str,
+    ocr: bool = False,
+    tables: bool = True,
+    images: bool = True,
+    metadata: bool = True,
+    chunking_strategy: Optional[str] = None,
+    chunk_size: int = 1000,
+    chunk_overlap: int = 100,
+    **kwargs
+) -> Document:
+    """
+    Extract content from bytes (in-memory document).
+    
+    Useful for agent workflows where content arrives as bytes from HTTP responses,
+    message attachments, or database blobs.
+    
+    Args:
+        data: Raw bytes of the document
+        filename: Filename (with extension) for format detection
+        ocr: Enable OCR for images and scanned documents
+        tables: Extract tables from the document
+        images: Extract images from the document
+        metadata: Extract document metadata
+        chunking_strategy: Strategy for chunking text
+        chunk_size: Target chunk size in characters
+        chunk_overlap: Character overlap between chunks
+        **kwargs: Additional extractor-specific options
+        
+    Returns:
+        Document object with extracted content
+        
+    Example:
+        >>> from runeextract import extract_from_bytes
+        >>> content = requests.get("https://example.com/doc.pdf").content
+        >>> doc = extract_from_bytes(content, "report.pdf")
+    """
+    filename = os.path.basename(filename).replace('\x00', '')
+    suffix = os.path.splitext(filename)[1] or ".tmp"
+    if '..' in suffix or '/' in suffix or '\\' in suffix:
+        suffix = ".tmp"
+    write_data = data if isinstance(data, bytes) else data.encode("utf-8") if isinstance(data, str) else data
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+        f.write(write_data)
+        temp_path = f.name
+    try:
+        return extract(
+            temp_path,
+            ocr=ocr, tables=tables, images=images, metadata=metadata,
+            chunking_strategy=chunking_strategy, chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap, **kwargs
+        )
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+
+
+def extract_from_string(
+    content: str,
+    filename: str,
+    ocr: bool = False,
+    tables: bool = True,
+    images: bool = True,
+    metadata: bool = True,
+    chunking_strategy: Optional[str] = None,
+    chunk_size: int = 1000,
+    chunk_overlap: int = 100,
+    **kwargs
+) -> Document:
+    """
+    Extract content from a string (in-memory document).
+    
+    Useful for agent workflows where content arrives as a string from
+    web scraping, API responses, or code.
+    
+    Args:
+        content: String content of the document
+        filename: Filename (with extension) for format detection
+        ocr: Enable OCR for images and scanned documents
+        tables: Extract tables from the document
+        images: Extract images from the document
+        metadata: Extract document metadata
+        chunking_strategy: Strategy for chunking text
+        chunk_size: Target chunk size in characters
+        chunk_overlap: Character overlap between chunks
+        **kwargs: Additional extractor-specific options
+        
+    Returns:
+        Document object with extracted content
+        
+    Example:
+        >>> from runeextract import extract_from_string
+        >>> html = "<html><body><h1>Hello</h1></body></html>"
+        >>> doc = extract_from_string(html, "page.html")
+    """
+    return extract_from_bytes(
+        content.encode("utf-8"), filename,
+        ocr=ocr, tables=tables, images=images, metadata=metadata,
+        chunking_strategy=chunking_strategy, chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap, **kwargs
+    )
 
 
 def extract_many(
     file_paths: List[str],
+    progress_callback: ProgressCallback = None,
     **kwargs
 ) -> List[Document]:
     """
@@ -82,22 +250,142 @@ def extract_many(
     
     Args:
         file_paths: List of file paths to extract
+        progress_callback: Optional callback(stage, current, total)
+        **kwargs: Options passed to extract()
+        
+    Returns:
+        List of Document objects (failed files are skipped with warnings)
+        Use extract_many_with_errors() for error details.
+    """
+    documents, _ = extract_many_with_errors(file_paths, progress_callback=progress_callback, **kwargs)
+    return documents
+
+
+def extract_many_with_errors(
+    file_paths: List[str],
+    progress_callback: ProgressCallback = None,
+    **kwargs
+):
+    """
+    Extract content from multiple files, returning errors alongside documents.
+    
+    Args:
+        file_paths: List of file paths to extract
+        progress_callback: Optional callback(stage, current, total)
+        **kwargs: Options passed to extract()
+        
+    Returns:
+        Tuple of (documents, errors) where errors is a list of
+        dicts with 'file_path' and 'error' keys.
+    """
+    documents = []
+    errors = []
+    total = len(file_paths)
+    cb = progress_callback or _noop_progress
+
+    for idx, file_path in enumerate(file_paths):
+        try:
+            cb("extract_file", idx, total)
+            doc = extract(file_path, progress_callback=cb, **kwargs)
+            documents.append(doc)
+        except ExtractionError as e:
+            logger.warning(f"Skipping {file_path}: {e}")
+            errors.append({"file_path": file_path, "error": str(e), "error_code": e.error_code})
+        except Exception as e:
+            logger.error(f"Unexpected error extracting {file_path}", exc_info=True)
+            errors.append({"file_path": file_path, "error": str(e), "error_code": "E999"})
+
+    cb("done", total, total)
+    return documents, errors
+
+
+async def extract_async(
+    file_path: str,
+    progress_callback: ProgressCallback = None,
+    **kwargs
+) -> Document:
+    """
+    Extract content from a document file asynchronously.
+    
+    Args:
+        file_path: Path to the file to extract
+        progress_callback: Optional callback(stage, current, total)
+        **kwargs: Options passed to extract()
+        
+    Returns:
+        Document object with extracted content
+    """
+    import asyncio
+    from functools import partial
+
+    loop = asyncio.get_running_loop()
+    fn = partial(extract, file_path, progress_callback=progress_callback, **kwargs)
+    return await loop.run_in_executor(None, fn)
+
+
+async def extract_many_async(
+    file_paths: List[str],
+    max_concurrency: int = 4,
+    progress_callback: ProgressCallback = None,
+    **kwargs
+) -> List[Document]:
+    """
+    Extract content from multiple files concurrently.
+    
+    Args:
+        file_paths: List of file paths to extract
+        max_concurrency: Maximum concurrent extractions (default: 4)
+        progress_callback: Optional callback(stage, current, total)
         **kwargs: Options passed to extract()
         
     Returns:
         List of Document objects
-        
-    Example:
-        >>> from runeextract import extract_many
-        >>> docs = extract_many(["a.pdf", "b.docx", "c.html"])
     """
-    documents = []
-    for file_path in file_paths:
-        try:
-            doc = extract(file_path, **kwargs)
-            documents.append(doc)
-        except Exception as e:
-            # Log error but continue with other files
-            print(f"Error extracting {file_path}: {e}")
-    
-    return documents
+    import asyncio
+    sem = asyncio.Semaphore(max_concurrency)
+    total = len(file_paths)
+    results: List[Document] = []
+    errors: List[Exception] = []
+    cb = progress_callback or _noop_progress
+
+    async def _one(idx: int, path: str):
+        async with sem:
+            try:
+                cb("extract_file", idx, total)
+                doc = await extract_async(path, **kwargs)
+                results.append(doc)
+            except ExtractionError as e:
+                logger.warning(f"Async extraction failed for {path}: {e}")
+                errors.append(e)
+            except Exception as e:
+                logger.error(f"Unexpected async error for {path}", exc_info=True)
+                errors.append(e)
+
+    tasks = [asyncio.create_task(_one(i, p)) for i, p in enumerate(file_paths)]
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    cb("done", total, total)
+    if errors:
+        logger.warning(f"{len(errors)} of {total} async extractions failed")
+    return results
+
+
+async def extract_stream(
+    file_path: str,
+    **kwargs
+) -> Document:
+    """
+    Extract content from a document, yielding one partial Document per page/section.
+
+    Args:
+        file_path: Path to the file to extract
+        **kwargs: Options passed to extract()
+
+    Yields:
+        Partial Document objects (e.g., one per page for PDFs)
+    """
+    from runeextract.core.streaming import get_streaming_extractor
+
+    extractor = get_streaming_extractor(file_path, **kwargs)
+    async for partial in extractor.extract_stream(file_path):
+        yield partial

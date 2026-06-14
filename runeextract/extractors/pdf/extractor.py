@@ -2,12 +2,16 @@
 PDF extractor using PyMuPDF and pdfplumber.
 """
 
-import fitz  # PyMuPDF
+import logging
+import fitz
 import pdfplumber
 from pathlib import Path
-from typing import List, Dict, Any
-from runeextract.core.extractor import BaseExtractor
+from typing import List, Dict, Any, Optional
+from runeextract.core.extractor import BaseExtractor, StreamingExtractor
 from runeextract.models.document import Document, Table, Image
+from runeextract.exceptions import CorruptFileError, ExtractionError
+
+logger = logging.getLogger(__name__)
 
 
 class PDFExtractor(BaseExtractor):
@@ -25,36 +29,50 @@ class PDFExtractor(BaseExtractor):
         """
         self.validate_file(file_path)
         
-        text = ""
+        text_parts: List[str] = []
         tables: List[Table] = []
         images: List[Image] = []
         metadata: Dict[str, Any] = {}
         
-        # Extract using PyMuPDF for text and images
+        extract_images = self.options.get('images', True)
+        extract_tables = self.options.get('tables', True)
+        
         doc = fitz.open(file_path)
-        
-        # Extract metadata
-        metadata.update(self._extract_metadata(doc))
-        
-        # Extract text and images page by page
-        for page_num, page in enumerate(doc, start=1):
-            # Extract text
-            page_text = page.get_text()
-            text += page_text + "\n\n"
+        try:
+            metadata.update(self._extract_metadata(doc))
             
-            # Extract images
-            if self.options.get('images', True):
-                page_images = self._extract_images(page, page_num)
-                images.extend(page_images)
+            page_breaks = []
+            char_count = 0
+            
+            for page_num, page in enumerate(doc, start=1):
+                page_text = page.get_text()
+                
+                if self.ocr and len(page_text.strip()) < 20:
+                    ocr_text = self._ocr_page(page)
+                    if ocr_text:
+                        page_text = ocr_text
+                        metadata.setdefault("ocr_pages", []).append(page_num)
+                
+                text_parts.append(page_text)
+                text_parts.append("\n\n")
+                char_count += len(page_text) + 2
+                page_breaks.append(char_count)
+                
+                if extract_images:
+                    page_images = self._extract_images(page, page_num)
+                    images.extend(page_images)
+        finally:
+            doc.close()
         
-        doc.close()
+        metadata["page_breaks"] = page_breaks
         
-        # Extract tables using pdfplumber
-        if self.options.get('tables', True):
+        if extract_tables:
             tables = self._extract_tables(file_path)
         
-        # Clean text
-        text = self.clean_text(text)
+        text = self.clean_text("".join(text_parts))
+        
+        if not text.strip():
+            logger.warning(f"PDF produced no text content: {file_path}")
         
         return Document(
             text=text,
@@ -64,6 +82,20 @@ class PDFExtractor(BaseExtractor):
             source_type="pdf",
             source_path=file_path
         )
+    
+    def _ocr_page(self, page: fitz.Page) -> str:
+        """Run OCR on a single PDF page rendered as image."""
+        try:
+            from runeextract.processors.ocr import extract_text
+            pix = page.get_pixmap(dpi=300)
+            img_bytes = pix.tobytes("png")
+            return extract_text(img_bytes)
+        except ImportError:
+            logger.debug("OCR processor not available (easyocr/Pillow missing)")
+            return ""
+        except Exception as exc:
+            logger.debug(f"Page OCR failed: {exc}")
+            return ""
     
     def _extract_metadata(self, doc: fitz.Document) -> Dict[str, Any]:
         """Extract metadata from PDF document."""
@@ -102,9 +134,8 @@ class PDFExtractor(BaseExtractor):
                     page_number=page_num,
                     metadata={'xref': xref, 'index': img_index}
                 ))
-            except Exception:
-                # Skip images that fail to extract
-                continue
+            except Exception as exc:
+                logger.debug(f"Skipping image xref={xref} on page {page_num}: {exc}")
         
         return images
     
@@ -142,11 +173,45 @@ class PDFExtractor(BaseExtractor):
                                 metadata={'table_index': table_index}
                             ))
         except Exception as e:
-            # Log error but don't fail entire extraction
-            pass
+            logger.warning(f"Table extraction failed for {file_path}: {e}")
         
         return tables
     
     def supported_extensions(self) -> list[str]:
         """Return supported file extensions."""
         return [".pdf"]
+
+
+class PdfStreamingExtractor(StreamingExtractor, PDFExtractor):
+    """PDF extractor with page-by-page streaming support."""
+
+    async def extract_stream(self, file_path: str):
+        """Yield a Document per page."""
+        self.validate_file(file_path)
+        import fitz
+        doc = fitz.open(file_path)
+        try:
+            total_pages = len(doc)
+            cumulative = 0
+
+            for page_num, page in enumerate(doc, start=1):
+                page_text = page.get_text()
+                if self.ocr and len(page_text.strip()) < 20:
+                    ocr_text = self._ocr_page(page)
+                    if ocr_text:
+                        page_text = ocr_text
+
+                cumulative += len(page_text) + 2
+                page_doc = Document(
+                    text=page_text,
+                    source_type="pdf",
+                    source_path=file_path,
+                    metadata={
+                        "page": page_num,
+                        "total_pages": total_pages,
+                        "page_breaks": [cumulative],
+                    }
+                )
+                yield page_doc
+        finally:
+            doc.close()

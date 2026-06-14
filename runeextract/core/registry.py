@@ -2,8 +2,12 @@
 Plugin registry for custom extractors.
 """
 
+import logging
+import threading
 from typing import Dict, Type, List
 from runeextract.core.extractor import BaseExtractor
+
+logger = logging.getLogger(__name__)
 
 
 class ExtractorRegistry:
@@ -15,6 +19,7 @@ class ExtractorRegistry:
     
     _instance = None
     _extractors: Dict[str, Type[BaseExtractor]] = {}
+    _lock = threading.Lock()
     
     def __new__(cls):
         if cls._instance is None:
@@ -35,7 +40,8 @@ class ExtractorRegistry:
                 ...
         """
         def decorator(extractor_class: Type[BaseExtractor]):
-            cls._extractors[extension.lower()] = extractor_class
+            with cls._lock:
+                cls._extractors[extension.lower()] = extractor_class
             return extractor_class
         return decorator
     
@@ -93,10 +99,41 @@ class ExtractorRegistry:
             True if unregistered, False if not found
         """
         extension = extension.lower()
-        if extension in cls._extractors:
-            del cls._extractors[extension]
-            return True
+        with cls._lock:
+            if extension in cls._extractors:
+                del cls._extractors[extension]
+                return True
         return False
+
+    @classmethod
+    def discover(cls, group: str = "runeextract.extractors") -> int:
+        """
+        Discover and register extractors via importlib.metadata entry points.
+        
+        Args:
+            group: Entry point group name
+            
+        Returns:
+            Number of extractors discovered
+        """
+        try:
+            from importlib import metadata as importlib_metadata
+        except ImportError:
+            return 0
+        
+        count = 0
+        for entry_point in importlib_metadata.entry_points(group=group):
+            try:
+                extractor_class = entry_point.load()
+                if hasattr(extractor_class, "supported_extensions"):
+                    for ext in extractor_class.supported_extensions():
+                        with cls._lock:
+                            cls._extractors[ext.lower()] = extractor_class
+                        count += 1
+                    logger.debug(f"Discovered extractor {entry_point.name}: {extractor_class.__name__}")
+            except Exception as exc:
+                logger.warning(f"Failed to load extractor {entry_point.name}: {exc}")
+        return count
 
 
 # Convenience function for decorator

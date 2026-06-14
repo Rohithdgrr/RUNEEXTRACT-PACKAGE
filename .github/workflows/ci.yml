@@ -7,6 +7,25 @@ on:
     branches: [main, master]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff codespell pre-commit
+      - name: Lint with ruff
+        run: ruff check runeextract
+      - name: Format check with ruff
+        run: ruff format --check runeextract
+      - name: Spell check with codespell
+        run: codespell --skip=*.pyc --ignore-words-list=ine,ser
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -23,10 +42,28 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install .[dev]
-      - name: Lint with flake8
-        run: |
-          pip install flake8
-          flake8 runeextract --count --max-line-length=100 --show-source --statistics
       - name: Test with pytest
         run: |
           pytest runeextract/tests/ --cov=runeextract --cov-report=term-missing
+
+  benchmark:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[dev] pytest-benchmark
+      - name: Run benchmarks
+        run: |
+          pytest runeextract/tests/benchmarks/ --benchmark-only --benchmark-json benchmark.json
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark.json

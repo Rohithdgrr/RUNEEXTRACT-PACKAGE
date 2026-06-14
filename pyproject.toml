@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "runeextract"
-version = "0.1.0"
+version = "0.3.0"
 description = "One extraction API for every document type"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -36,37 +36,66 @@ classifiers = [
 ]
 
 dependencies = [
-    "pymupdf>=1.23.0",
-    "pdfplumber>=0.10.0",
-    "python-docx>=1.1.0",
-    "python-pptx>=0.6.21",
-    "openpyxl>=3.1.0",
-    "pandas>=2.0.0",
-    "beautifulsoup4>=4.12.0",
-    "lxml>=4.9.0",
-    "markdown-it-py>=3.0.0",
+    "pymupdf>=1.23.0,<2.0.0",
+    "pdfplumber>=0.10.0,<1.0.0",
+    "python-docx>=1.1.0,<2.0.0",
+    "python-pptx>=0.6.21,<1.0.0",
+    "openpyxl>=3.1.0,<4.0.0",
+    "pandas>=2.0.0,<3.0.0",
+    "beautifulsoup4>=4.12.0,<5.0.0",
+    "lxml>=4.9.0,<6.0.0",
+    "markdown-it-py>=3.0.0,<4.0.0",
+    "tomli>=1.1.0,<3.0.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
 ocr = [
-    "easyocr>=1.7.0",
+    "easyocr>=1.7.0,<2.0.0",
+    "Pillow>=10.0.0,<12.0.0",
 ]
 ai = [
-    "openai>=1.0.0",
+    "openai>=1.0.0,<2.0.0",
+]
+ai-anthropic = [
+    "anthropic>=0.30.0,<1.0.0",
+]
+ai-gemini = [
+    "google-generativeai>=0.6.0,<1.0.0",
 ]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-    "black>=23.0.0",
-    "flake8>=6.0.0",
-    "mypy>=1.5.0",
+    "pytest>=7.4.0,<9.0.0",
+    "pytest-cov>=4.1.0,<7.0.0",
+    "black>=23.0.0,<25.0.0",
+    "flake8>=6.0.0,<8.0.0",
+    "mypy>=1.5.0,<2.0.0",
 ]
 youtube = [
-    "youtube-transcript-api>=0.6.0",
-    "yt-dlp>=2023.0.0",
+    "youtube-transcript-api>=0.6.0,<1.0.0",
+    "yt-dlp>=2023.0.0,<2025.0.0",
+]
+notion = [
+    "requests>=2.28.0,<3.0.0",
+]
+epub = [
+    "EbookLib>=0.18,<1.0.0",
+    "beautifulsoup4>=4.12.0,<5.0.0",
+    "lxml>=4.9.0,<6.0.0",
+]
+async = [
+    "aiohttp>=3.9.0,<4.0.0",
+]
+rag = [
+    "tiktoken>=0.5.0,<1.0.0",
+]
+embeddings = [
+    "sentence-transformers>=2.2.0,<4.0.0",
+]
+vector-stores = [
+    "chromadb>=0.4.0,<1.0.0",
+    "faiss-cpu>=1.7.0,<2.0.0",
 ]
 all = [
-    "runeextract[ocr,ai,youtube,dev]",
+    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,dev,rag,embeddings,vector-stores]",
 ]
 
 [project.urls]
@@ -77,6 +106,20 @@ Issues = "https://github.com/runeextract/runeextract/issues"
 
 [project.scripts]
 runeextract = "runeextract.cli.main:main"
+
+[project.entry-points."runeextract.extractors"]
+pdf = "runeextract.extractors.pdf.extractor:PDFExtractor"
+docx = "runeextract.extractors.docx.extractor:DocxExtractor"
+pptx = "runeextract.extractors.pptx.extractor:PptxExtractor"
+xlsx = "runeextract.extractors.xlsx.extractor:XlsxExtractor"
+html = "runeextract.extractors.html.extractor:HtmlExtractor"
+markdown = "runeextract.extractors.markdown.extractor:MarkdownExtractor"
+csv = "runeextract.extractors.csv.extractor:CsvExtractor"
+json = "runeextract.extractors.json.extractor:JsonExtractor"
+image = "runeextract.extractors.image.extractor:ImageExtractor"
+youtube = "runeextract.extractors.youtube.extractor:YoutubeExtractor"
+notion = "runeextract.extractors.notion.extractor:NotionExtractor"
+epub = "runeextract.extractors.epub.extractor:EpubExtractor"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -103,3 +146,14 @@ python_version = "3.8"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
+
+[tool.cibuildwheel]
+build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
+skip = ["*-win32", "*-manylinux_i686", "*-musllinux_*"]
+test-command = "python -c 'from runeextract import extract; print(\"ok\")'"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux2014"
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]

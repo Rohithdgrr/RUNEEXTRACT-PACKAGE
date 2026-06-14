@@ -2,11 +2,14 @@
 Markdown extractor using markdown-it-py.
 """
 
+import logging
 from markdown_it import MarkdownIt
 from pathlib import Path
 from typing import List, Dict, Any
 from runeextract.core.extractor import BaseExtractor
 from runeextract.models.document import Document as RuneDocument, Table
+
+logger = logging.getLogger(__name__)
 
 
 class MarkdownExtractor(BaseExtractor):

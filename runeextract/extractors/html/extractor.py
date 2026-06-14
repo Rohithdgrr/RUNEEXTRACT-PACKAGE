@@ -2,6 +2,7 @@
 HTML extractor using BeautifulSoup4.
 """
 
+import logging
 from bs4 import BeautifulSoup
 from pathlib import Path
 from typing import List, Dict, Any
@@ -9,6 +10,8 @@ from urllib.parse import urljoin, urlparse
 import requests
 from runeextract.core.extractor import BaseExtractor
 from runeextract.models.document import Document as RuneDocument, Table, Image
+
+logger = logging.getLogger(__name__)
 
 
 class HtmlExtractor(BaseExtractor):
@@ -75,37 +78,81 @@ class HtmlExtractor(BaseExtractor):
     def _extract_tables(self, soup: BeautifulSoup) -> List[Table]:
         tables = []
         for table_index, table in enumerate(soup.find_all("table"), start=1):
-            rows = []
+            rows_raw = table.find_all("tr")
+            if not rows_raw:
+                continue
+
+            # Build expanded grid with colspan/rowspan
+            grid = []
             columns = []
-            thead = table.find("thead")
-            if thead:
-                header_row = thead.find("tr")
-                if header_row:
-                    columns = [th.get_text().strip() for th in header_row.find_all(["th", "td"])]
-            if not columns:
-                tbody = table.find("tbody")
-                if tbody:
-                    first_row = tbody.find("tr")
-                    if first_row:
-                        columns = [th.get_text().strip() for th in first_row.find_all(["th", "td"])]
             used_first_row = False
-            if not columns:
-                first_row = table.find("tr")
-                if first_row:
-                    columns = [cell.get_text().strip() for cell in first_row.find_all(["th", "td"])]
-                    used_first_row = True
-            tbody = table.find("tbody")
-            if not tbody:
-                tbody = table
-            for row_idx, row in enumerate(tbody.find_all("tr")):
-                if used_first_row and row_idx == 0:
-                    continue
-                row_data = [cell.get_text().strip() for cell in row.find_all(["td", "th"])]
-                if row_data and any(row_data):
-                    rows.append(row_data)
-            if rows:
-                tables.append(Table(rows=rows, columns=columns,
-                                    metadata={"table_index": table_index}))
+
+            for row in rows_raw:
+                cells = row.find_all(["th", "td"])
+                row_data = []
+                col = 0
+                for cell in cells:
+                    # Skip cells occupied by rowspan from above
+                    while any(
+                        len(g) > col and g[col] is not None
+                        for g in grid
+                    ):
+                        col += 1
+
+                    text = cell.get_text().strip()
+                    colspan = int(cell.get("colspan", 1))
+                    rowspan = int(cell.get("rowspan", 1))
+
+                    # Store (col, colspan, rowspan_remaining, text)
+                    row_data.append({
+                        "col": col, "text": text,
+                        "colspan": colspan, "rowspan": rowspan
+                    })
+
+                    for _ in range(colspan):
+                        row_data.append(None)  # placeholder
+                    col += colspan
+
+                grid.append(row_data)
+
+            # Extract columns from first row
+            if grid and grid[0]:
+                first_cells = [c for c in grid[0] if c is not None]
+                columns = [c["text"] for c in first_cells]
+                used_first_row = True
+
+            # Expand colspan/rowspan into a flat 2D array
+            expanded = []
+            row_idx = 0
+            while row_idx < len(grid):
+                flat_row = []
+                col = 0
+                pending = []
+                col_idx = 0
+                for cell_info in grid[row_idx]:
+                    if cell_info is None:
+                        continue
+                    c = cell_info
+                    # Fill gaps
+                    while col < c["col"]:
+                        flat_row.append("")
+                        col += 1
+                    flat_row.append(c["text"])
+                    if c["rowspan"] > 1:
+                        pending.append((c["col"], c["colspan"], c["rowspan"] - 1, c["text"]))
+                    col += 1
+                expanded.append(flat_row)
+                row_idx += 1
+
+            data_rows = expanded[1:] if used_first_row and len(expanded) > 1 else expanded
+            data_rows = [r for r in data_rows if any(r)]
+
+            if data_rows:
+                tables.append(Table(
+                    rows=data_rows, columns=columns,
+                    metadata={"table_index": table_index}
+                ))
+
         return tables
 
     def _extract_images(self, soup: BeautifulSoup, source: str) -> List[Image]:

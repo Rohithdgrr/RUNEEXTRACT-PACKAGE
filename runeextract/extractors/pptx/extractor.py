@@ -2,6 +2,7 @@
 PPTX extractor using python-pptx.
 """
 
+import logging
 from pptx import Presentation
 from pptx.util import Inches
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import List, Dict, Any
 from io import BytesIO
 from runeextract.core.extractor import BaseExtractor
 from runeextract.models.document import Document as RuneDocument, Table, Image
+
+logger = logging.getLogger(__name__)
 
 
 class PptxExtractor(BaseExtractor):
@@ -57,8 +60,11 @@ class PptxExtractor(BaseExtractor):
                         image_format = content_type.split('/')[-1] if '/' in content_type else 'png'
                         images.append(Image(data=image_data, format=image_format, page_number=slide_num,
                                             metadata={'shape_name': shape.name, 'shape_id': shape.shape_id}))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug(f"Failed to extract image from shape '{shape.name}': {exc}")
+
+        if self.ocr and images:
+            text += self._ocr_text_from_images(images)
 
         metadata['slide_count'] = slide_count
         text = self.clean_text(text)
@@ -79,9 +85,25 @@ class PptxExtractor(BaseExtractor):
             metadata['revision'] = props.revision or ""
             metadata['category'] = props.category or ""
             metadata['comments'] = props.comments or ""
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"Metadata extraction error in PPTX: {exc}")
         return metadata
+
+    @staticmethod
+    def _ocr_text_from_images(images: List[Image]) -> str:
+        try:
+            from runeextract.processors.ocr import extract_text as ocr_text
+        except ImportError:
+            return ""
+        result = []
+        for img in images:
+            try:
+                t = ocr_text(img.data)
+                if t:
+                    result.append(f"[OCR: {t}]")
+            except Exception:
+                pass
+        return "\n".join(result)
 
     def supported_extensions(self) -> list[str]:
         return [".pptx", ".ppt"]

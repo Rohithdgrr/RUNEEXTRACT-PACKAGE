@@ -2,12 +2,15 @@
 DOCX extractor using python-docx.
 """
 
+import logging
 from docx import Document
 from pathlib import Path
 from typing import List, Dict, Any
 from io import BytesIO
 from runeextract.core.extractor import BaseExtractor
 from runeextract.models.document import Document as RuneDocument, Table, Image
+
+logger = logging.getLogger(__name__)
 
 
 class DocxExtractor(BaseExtractor):
@@ -28,9 +31,27 @@ class DocxExtractor(BaseExtractor):
             tables = self._extract_tables(doc)
         if self.options.get('images', True):
             images = self._extract_images(doc, file_path)
+            if self.ocr:
+                text += self._ocr_text_from_images(images)
         text = self.clean_text(text)
         return RuneDocument(text=text, tables=tables, images=images, metadata=metadata,
                             source_type="docx", source_path=file_path)
+
+    @staticmethod
+    def _ocr_text_from_images(images: List[Image]) -> str:
+        try:
+            from runeextract.processors.ocr import extract_text as ocr_text
+        except ImportError:
+            return ""
+        result = []
+        for img in images:
+            try:
+                t = ocr_text(img.data)
+                if t:
+                    result.append(f"[OCR: {t}]")
+            except Exception:
+                pass
+        return "\n".join(result)
 
     def _extract_metadata(self, doc: Document) -> Dict[str, Any]:
         metadata = {}
@@ -82,10 +103,10 @@ class DocxExtractor(BaseExtractor):
                                         format=image_format,
                                         metadata={'paragraph_index': para_index, 'rId': embed}
                                     ))
-                                except Exception:
-                                    pass
-        except Exception:
-            pass
+                                except Exception as exc:
+                                    logger.debug(f"Failed to extract image from rId={embed}: {exc}")
+        except Exception as exc:
+            logger.debug(f"Image extraction error in DOCX: {exc}")
         return images
 
     def supported_extensions(self) -> list[str]:

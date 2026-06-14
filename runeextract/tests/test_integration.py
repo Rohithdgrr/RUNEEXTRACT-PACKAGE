@@ -389,7 +389,8 @@ class TestErrorHandlingIntegration:
             temp_path = f.name
         
         try:
-            with pytest.raises(ValueError):
+            from runeextract.exceptions import UnsupportedFormatError
+            with pytest.raises(UnsupportedFormatError):
                 extract(temp_path)
         finally:
             os.unlink(temp_path)
