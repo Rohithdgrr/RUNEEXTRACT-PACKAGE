@@ -11,11 +11,12 @@ from runeextract.models.document import Document, ChunkingStrategy
 from runeextract.config import get_config
 from runeextract.exceptions import ExtractionError
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __all__ = [
     "extract", "extract_many", "extract_many_with_errors",
-    "extract_async", "extract_many_async",
+    "extract_async", "extract_many_async", "extract_and_index",
     "extract_stream", "extract_from_bytes", "extract_from_string",
+    "extract_crawl",
     "Document", "ChunkingStrategy", "get_config", "set_config"
 ]
 
@@ -389,3 +390,131 @@ async def extract_stream(
     extractor = get_streaming_extractor(file_path, **kwargs)
     async for partial in extractor.extract_stream(file_path):
         yield partial
+
+
+def extract_and_index(
+    file_path: str,
+    store: str = "chromadb",
+    collection_name: str = "documents",
+    persist_directory: str = "./chroma_db",
+    chunking_strategy: Optional[str] = None,
+    chunk_size: int = 1000,
+    chunk_overlap: int = 100,
+    **kwargs
+) -> Document:
+    """
+    Extract a document, chunk it, and index it into a vector store in one call.
+
+    Args:
+        file_path: Path to the file to extract
+        store: Vector store type ("chromadb" or "faiss")
+        collection_name: ChromaDB collection name
+        persist_directory: Directory for vector store persistence
+        chunking_strategy: Chunking strategy (default: fixed_size)
+        chunk_size: Target chunk size in characters
+        chunk_overlap: Overlap between chunks
+        **kwargs: Additional options passed to extract()
+
+    Returns:
+        Document object (already indexed into the vector store)
+    """
+    doc = extract(file_path, chunking_strategy=chunking_strategy,
+                  chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs)
+    if store == "chromadb":
+        doc.to_chromadb(collection_name=collection_name, persist_directory=persist_directory)
+    elif store == "faiss":
+        doc.to_faiss(index_path=persist_directory.rstrip("/\\") + "/faiss_index")
+    else:
+        raise ValueError(f"Unknown store '{store}'. Options: chromadb, faiss")
+    return doc
+
+
+def extract_crawl(
+    start_url: str,
+    max_pages: int = 10,
+    same_domain: bool = True,
+    respect_robots: bool = True,
+    delay: float = 0.5,
+    **kwargs
+) -> List[Document]:
+    """Crawl web pages starting from a URL and extract each as a Document.
+
+    Discovers internal links on each page and follows them breadth-first.
+    Each page is extracted via the HTML extractor.
+
+    Args:
+        start_url: Starting URL to crawl
+        max_pages: Maximum number of pages to extract (default 10)
+        same_domain: Only follow links to the same domain (default True)
+        respect_robots: Skip URLs disallowed by robots.txt (default True)
+        delay: Delay in seconds between requests (default 0.5)
+        **kwargs: Additional options passed to extract()
+
+    Returns:
+        List of Document objects (one per crawled page)
+    """
+    import time
+    from urllib.parse import urlparse, urljoin
+    from collections import deque
+
+    visited: set = set()
+    to_visit: deque = deque([start_url])
+    documents: List[Document] = []
+    domain = urlparse(start_url).netloc
+
+    _disallowed: set = set()
+    if respect_robots:
+        try:
+            import urllib.robotparser
+            rp = urllib.robotparser.RobotFileParser()
+            rp.set_url(urljoin(start_url, "/robots.txt"))
+            rp.read()
+            _disallowed = {urljoin(start_url, p) for p in rp.disallow_all if p}
+        except Exception:
+            pass
+
+    def _allowed(url: str) -> bool:
+        if respect_robots:
+            for dis in _disallowed:
+                if url.startswith(dis):
+                    return False
+        return True
+
+    while to_visit and len(documents) < max_pages:
+        url = to_visit.popleft()
+        if url in visited or not _allowed(url):
+            continue
+        visited.add(url)
+
+        try:
+            doc = extract(url, **kwargs)
+            documents.append(doc)
+            time.sleep(delay)
+        except Exception as exc:
+            logger.warning(f"Crawl skipped {url}: {exc}")
+            continue
+
+        if len(documents) >= max_pages:
+            break
+
+        try:
+            import requests
+            from bs4 import BeautifulSoup
+            resp = requests.get(url, timeout=15)
+            soup = BeautifulSoup(resp.text, "lxml")
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith("#") or href.startswith("javascript:"):
+                    continue
+                full_url = urljoin(url, href)
+                parsed = urlparse(full_url)
+                if parsed.scheme not in ("http", "https"):
+                    continue
+                if same_domain and parsed.netloc != domain:
+                    continue
+                if full_url not in visited:
+                    to_visit.append(full_url)
+        except Exception:
+            pass
+
+    return documents

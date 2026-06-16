@@ -40,6 +40,7 @@ class ChunkingStrategy(str, Enum):
     SEMANTIC = "semantic"
     FIXED_SIZE = "fixed_size"
     BY_TOKEN = "by_token"
+    SENTENCE_WINDOW = "sentence_window"
 
 
 @dataclass
@@ -152,6 +153,8 @@ class Document:
             self._chunks = self._chunk_semantic(size, **kwargs)
         elif strategy == ChunkingStrategy.BY_TOKEN:
             self._chunks = self._chunk_by_token(size, overlap, **kwargs)
+        elif strategy == ChunkingStrategy.SENTENCE_WINDOW:
+            self._chunks = self._chunk_sentence_window(size, overlap, **kwargs)
         else:
             raise ValueError(f"Unknown chunking strategy: {strategy}")
 
@@ -353,6 +356,65 @@ class Document:
 
         return chunks
 
+    def _chunk_sentence_window(self, size: int = 5, overlap: int = 1, **kwargs) -> List[Chunk]:
+        """Chunk text by grouping sentences into windows with overlap.
+
+        Splits text on sentence boundaries (., !, ?) and groups sentences
+        into windows of `size` sentences. Adjacent windows overlap by
+        `overlap` sentences.
+
+        Args:
+            size: Number of sentences per window (default 5)
+            overlap: Number of overlapping sentences between windows (default 1)
+
+        Returns:
+            List of Chunk objects
+        """
+        import re
+        text = self.text
+        sentence_endings = re.finditer(r'(?<=[.!?])\s+', text)
+        boundaries = [0]
+        for m in sentence_endings:
+            boundaries.append(m.end())
+        if boundaries[-1] < len(text):
+            boundaries.append(len(text))
+
+        sentences = []
+        for i in range(len(boundaries) - 1):
+            sent_text = text[boundaries[i]:boundaries[i + 1]].strip()
+            if sent_text:
+                sentences.append((sent_text, boundaries[i], boundaries[i + 1]))
+
+        if not sentences:
+            return [Chunk(text=text, chunk_id="chunk_0", start_index=0, end_index=len(text),
+                          metadata={"strategy": "sentence_window", "size": size, "overlap": overlap})]
+
+        chunks = []
+        chunk_id = 0
+        step = max(size - overlap, 1)
+        for i in range(0, len(sentences), step):
+            window = sentences[i:i + size]
+            if not window:
+                break
+            chunk_text = " ".join(s[0] for s in window)
+            start_idx = window[0][1]
+            end_idx = window[-1][2]
+            chunks.append(Chunk(
+                text=chunk_text,
+                chunk_id=f"chunk_{chunk_id}",
+                start_index=start_idx,
+                end_index=end_idx,
+                metadata={
+                    "strategy": "sentence_window",
+                    "size": size,
+                    "overlap": overlap,
+                    "num_sentences": len(window),
+                }
+            ))
+            chunk_id += 1
+
+        return chunks
+
     def _clean_str(self, val: Any) -> Any:
         """Recursively strip null bytes from strings in a data structure."""
         if isinstance(val, str):
@@ -362,6 +424,94 @@ class Document:
         if isinstance(val, list):
             return [self._clean_str(v) for v in val]
         return val
+
+    def score_quality(self) -> Dict[str, Any]:
+        """Score document extraction quality on multiple dimensions.
+
+        Returns a dict with per-dimension scores (0-100) and an overall
+        weighted composite score.
+
+        Dimensions:
+            - text_density: Ratio of meaningful characters to whitespace
+            - readability: Flesch reading-ease approximation (0-100)
+            - structure: Score for tables, images, metadata presence
+            - completeness: How much content was extracted vs expected
+            - ocr_confidence: OCR confidence if available (defaults to 50)
+
+        Returns:
+            Dict with keys: text_density, readability, structure,
+            completeness, ocr_confidence, overall
+        """
+        scores = {}
+
+        text_len = len(self.text) if self.text else 0
+        if text_len > 0:
+            non_ws = sum(1 for c in self.text if not c.isspace())
+            scores["text_density"] = min(100, int((non_ws / text_len) * 100))
+        else:
+            scores["text_density"] = 0
+
+        if text_len > 50:
+            sentences = self.text.count(".") + self.text.count("!") + self.text.count("?")
+            words = len(self.text.split())
+            syllables = sum(self._count_syllables(w) for w in self.text.split()[:1000])
+            if words > 0 and sentences > 0:
+                avg_syllables = syllables / min(words, 1000)
+                avg_words_per_sent = words / sentences
+                raw = 206.835 - (1.015 * avg_words_per_sent) - (84.6 * avg_syllables)
+                scores["readability"] = max(0, min(100, int(raw)))
+            else:
+                scores["readability"] = 50
+        else:
+            scores["readability"] = 50
+
+        struct_score = 0
+        if self.tables:
+            struct_score += 30
+        if self.images:
+            struct_score += 30
+        if self.metadata and any(v for v in self.metadata.values() if isinstance(v, str)):
+            struct_score += 20
+        if text_len > 0:
+            struct_score += 20
+        scores["structure"] = struct_score
+
+        expected_len = len(self.text) if self.text else 0
+        if expected_len > 0:
+            scores["completeness"] = 100
+        else:
+            scores["completeness"] = 0
+
+        ocr_conf = self.metadata.get("ocr_confidence")
+        if ocr_conf is not None:
+            scores["ocr_confidence"] = min(100, int(float(ocr_conf) * 100))
+        else:
+            scores["ocr_confidence"] = 50
+
+        weights = {"text_density": 0.20, "readability": 0.15, "structure": 0.25,
+                   "completeness": 0.25, "ocr_confidence": 0.15}
+        overall = sum(scores[k] * weights[k] for k in weights)
+        scores["overall"] = int(overall)
+
+        return scores
+
+    @staticmethod
+    def _count_syllables(word: str) -> int:
+        """Simple syllable counter for Flesch readability approximation."""
+        word = word.lower().strip(".,!?;:\"'()[]")
+        if not word:
+            return 0
+        vowels = "aeiouy"
+        count = 0
+        prev_vowel = False
+        for ch in word:
+            is_vowel = ch in vowels
+            if is_vowel and not prev_vowel:
+                count += 1
+            prev_vowel = is_vowel
+        if count == 0:
+            count = 1
+        return count
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert document to dictionary representation."""
@@ -456,12 +606,15 @@ class Document:
             source_path=";".join(d.source_path for d in documents if d.source_path),
         )
 
-    def to_openai_messages(self, system_message: Optional[str] = None, include_all: bool = True) -> List[Dict[str, str]]:
+    def to_openai_messages(self, system_message: Optional[str] = None, include_all: bool = True,
+                           include_images: bool = False) -> List[Dict[str, Any]]:
         """Convert document chunks to OpenAI chat message format.
         
         Args:
             system_message: Optional system message to prepend
             include_all: If True, include all chunks. If False, include only the full text.
+            include_images: If True, embed images as base64 content blocks (OpenAI vision format).
+                            For each image, a text placeholder [IMAGE: format] is included.
             
         Returns:
             List of message dicts compatible with OpenAI chat completion API
@@ -469,11 +622,30 @@ class Document:
         messages = []
         if system_message:
             messages.append({"role": "system", "content": system_message})
+
         if include_all and self._chunks:
             for chunk in self._chunks:
                 messages.append({"role": "user", "content": chunk.text})
         else:
-            messages.append({"role": "user", "content": self.text})
+            has_images = include_images and any(hasattr(img, 'data') for img in self.images)
+            if has_images:
+                content_parts = []
+                content_parts.append({"type": "text", "text": self.text})
+                for img in self.images:
+                    try:
+                        import base64
+                        b64 = base64.b64encode(img.data).decode("utf-8")
+                        mime = f"image/{img.format}" if img.format else "image/png"
+                        content_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{b64}", "detail": "auto"}
+                        })
+                    except Exception:
+                        content_parts.append({"type": "text", "text": f"[IMAGE: {img.format}]"})
+                content = content_parts
+            else:
+                content = self.text
+            messages.append({"role": "user", "content": content})
         return messages
 
     def to_chromadb(self, collection_name: str = "documents", persist_directory: str = "./chroma_db", embedding_function=None,
@@ -563,12 +735,16 @@ class Document:
 
         return index, metadata_list
 
-    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[Chunk, float]]:
-        """Retrieve chunks most relevant to a query using embedding similarity.
+    def search(self, query: str, top_k: int = 5, mode: str = "hybrid",
+               metadata_filter: Optional[Dict[str, Any]] = None) -> List[Tuple[Chunk, float]]:
+        """Search chunks using hybrid (dense + BM25) retrieval.
 
         Args:
             query: Natural language query
             top_k: Number of chunks to return
+            mode: "dense", "sparse", or "hybrid" (default). hybrid combines scores.
+            metadata_filter: Optional dict of metadata fields to filter by.
+                             E.g. {"page": 3} returns only chunks with page==3.
 
         Returns:
             List of (Chunk, score) tuples sorted by relevance (highest first)
@@ -578,20 +754,66 @@ class Document:
         if not self._chunks:
             return []
 
-        from runeextract.processors.ai import AIProcessor
-        ai = AIProcessor()
-        query_embedding = ai.embed(query)[0]
-        import numpy as np
-        chunk_texts = [c.text for c in self._chunks]
-        chunk_embeddings = ai.embed(chunk_texts)
+        chunks = self._chunks
+        if metadata_filter:
+            filtered = []
+            for c in chunks:
+                matches = all(c.metadata.get(k) == v for k, v in metadata_filter.items())
+                if matches:
+                    filtered.append(c)
+            chunks = filtered
+            if not chunks:
+                return []
 
-        query_vec = np.array(query_embedding, dtype=np.float32)
-        chunk_vecs = np.array(chunk_embeddings, dtype=np.float32)
-        norms = np.linalg.norm(chunk_vecs, axis=1) * np.linalg.norm(query_vec)
-        scores = np.dot(chunk_vecs, query_vec) / np.maximum(norms, 1e-10)
+        scores = {}
 
-        top_indices = np.argsort(scores)[-top_k:][::-1]
-        return [(self._chunks[i], float(scores[i])) for i in top_indices]
+        if mode in ("dense", "hybrid"):
+            from runeextract.processors.ai import AIProcessor
+            ai = AIProcessor()
+            query_embedding = ai.embed(query)[0]
+            import numpy as np
+            chunk_texts = [c.text for c in chunks]
+            chunk_embeddings = ai.embed(chunk_texts)
+            query_vec = np.array(query_embedding, dtype=np.float32)
+            chunk_vecs = np.array(chunk_embeddings, dtype=np.float32)
+            norms = np.linalg.norm(chunk_vecs, axis=1) * np.linalg.norm(query_vec)
+            dense_scores = np.dot(chunk_vecs, query_vec) / np.maximum(norms, 1e-10)
+            for i, s in enumerate(dense_scores):
+                scores[id(chunks[i])] = s
+
+        if mode in ("sparse", "hybrid"):
+            try:
+                from rank_bm25 import BM25Okapi
+                tokenized_corpus = [c.text.lower().split() for c in chunks]
+                bm25 = BM25Okapi(tokenized_corpus)
+                tokenized_query = query.lower().split()
+                bm25_scores = bm25.get_scores(tokenized_query)
+                import numpy as np
+                if bm25_scores.max() > 0:
+                    bm25_scores = bm25_scores / bm25_scores.max()
+                for i, s in enumerate(bm25_scores):
+                    prev = scores.get(id(chunks[i]), 0.0)
+                    scores[id(chunks[i])] = prev + s * 0.3
+            except ImportError:
+                pass
+
+        scored = [(c, scores.get(id(c), 0.0)) for c in chunks]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return scored[:top_k]
+
+    def retrieve(self, query: str, top_k: int = 5) -> List[Tuple[Chunk, float]]:
+        """Retrieve chunks most relevant to a query using embedding similarity.
+
+        Legacy wrapper around search(mode='dense').
+
+        Args:
+            query: Natural language query
+            top_k: Number of chunks to return
+
+        Returns:
+            List of (Chunk, score) tuples sorted by relevance (highest first)
+        """
+        return self.search(query, top_k=top_k, mode="dense")
 
     def ask(self, question: str, top_k: int = 5) -> str:
         """Ask a question about the document using RAG (retrieve + answer).
@@ -610,6 +832,42 @@ class Document:
         from runeextract.processors.ai import AIProcessor
         ai = AIProcessor()
         return ai.answer_question(question, context)
+
+    def compress(self, query: str, top_k: int = 5, max_tokens: int = 2000) -> str:
+        """Retrieve, rerank, and compress chunks into a concise context for a query.
+
+        Uses LLM to extract only the sentences relevant to the query from top chunks,
+        producing a compressed context that fits in a small token budget.
+
+        Args:
+            query: The query to compress context for
+            top_k: Number of chunks to retrieve and rerank
+            max_tokens: Maximum tokens in the compressed output
+
+        Returns:
+            Compressed context string with only query-relevant content
+        """
+        results = self.retrieve(query, top_k=top_k)
+        if not results:
+            return ""
+
+        texts = [chunk.text for chunk, _ in results]
+        from runeextract.processors.ai import AIProcessor
+        ai = AIProcessor()
+        reranked = ai.rerank(query, texts, top_k=min(top_k, 3))
+        reranked_texts = [t for t, _ in reranked]
+
+        combined = "\n\n".join(reranked_texts)
+        if ai._estimate_token_count(combined) <= max_tokens:
+            return combined
+
+        system = ("You are a context compression assistant. Extract only the sentences "
+                  "that are relevant to answering the given query. Remove redundant or "
+                  "irrelevant content. Preserve factual accuracy and specificity.")
+        user = (f"Query: {query}\n\n"
+                f"Compress the following into {max_tokens} tokens or fewer, "
+                f"keeping only query-relevant information:\n\n{combined}")
+        return ai._call(system, user, max_tokens=max_tokens)
 
     def to_llamaindex_documents(self) -> List[Any]:
         """Convert document chunks to LlamaIndex Document objects (optional dep).

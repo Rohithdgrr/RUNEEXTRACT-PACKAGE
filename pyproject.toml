@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "runeextract"
-version = "0.3.0"
+version = "0.4.0"
 description = "One extraction API for every document type"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -94,8 +94,14 @@ vector-stores = [
     "chromadb>=0.4.0,<1.0.0",
     "faiss-cpu>=1.7.0,<2.0.0",
 ]
+audio = [
+    "openai-whisper>=20231117,<20250000",
+]
+video = [
+    "opencv-python-headless>=4.8.0,<5.0.0",
+]
 all = [
-    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,dev,rag,embeddings,vector-stores]",
+    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,dev,rag,embeddings,vector-stores,audio,video]",
 ]
 
 [project.urls]
@@ -120,6 +126,8 @@ image = "runeextract.extractors.image.extractor:ImageExtractor"
 youtube = "runeextract.extractors.youtube.extractor:YoutubeExtractor"
 notion = "runeextract.extractors.notion.extractor:NotionExtractor"
 epub = "runeextract.extractors.epub.extractor:EpubExtractor"
+audio = "runeextract.extractors.audio.extractor:AudioExtractor"
+video = "runeextract.extractors.video.extractor:VideoExtractor"
 
 [tool.setuptools.packages.find]
 where = ["."]
