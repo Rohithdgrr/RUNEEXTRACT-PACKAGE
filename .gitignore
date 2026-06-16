@@ -156,3 +156,4 @@ Thumbs.db
 *.html
 *.md
 !README.md
+!docs/*.md

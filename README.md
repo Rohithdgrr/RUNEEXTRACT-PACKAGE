@@ -1,203 +1,156 @@
 # RuneExtract
 
-**One extraction API for every document type.**
+**One extraction API for every document type.** v0.4.0
 
-RuneExtract is a universal document extraction library that provides a single, consistent API for extracting content from any file type. Whether it's PDF, DOCX, HTML, images, YouTube videos, or Notion exports — RuneExtract returns the same structured output every time.
+RuneExtract is a universal document extraction library that provides a single, consistent API for extracting content from any file type — PDFs, DOCX, HTML, images, audio, video, YouTube, Notion, and more.
 
 ```python
 from runeextract import extract
 
 doc = extract("report.pdf")
-
 print(doc.text)
 print(doc.tables)
-print(doc.images)
-print(doc.metadata)
 print(doc.chunks())
 ```
 
 One API. Any file. Same output schema.
 
-## Installation
+## Quick Install
 
 ```bash
 pip install runeextract
+pip install "runeextract[all]"   # Everything (OCR, AI, audio, video, RAG)
 ```
-
-Optional extras:
-
-| Extra | Packages | Feature |
-|-------|----------|---------|
-| `[ocr]` | easyocr, Pillow | OCR for images and scanned PDFs |
-| `[ai]` | openai | AI summarization, keywords, entities, Q&A, flashcards |
-| `[youtube]` | youtube-transcript-api, yt-dlp | YouTube transcript and metadata |
-| `[notion]` | requests, aiohttp | Notion page and database extraction |
-| `[epub]` | EbookLib, beautifulsoup4 | EPUB e-book extraction |
-| `[async]` | aiohttp | Async HTTP support for URL extractors |
-| `[all]` | All of the above | Everything |
 
 ## Quick Start
 
 ```python
 from runeextract import extract
 
-doc = extract("report.pdf", ocr=True, tables=True, chunking_strategy="semantic")
-print(doc.text)
-print(doc.tables[0].to_dataframe())
+# Extract any file — same API
+doc = extract("report.pdf")
+doc = extract("presentation.pptx", images=True)
+doc = extract("https://youtube.com/watch?v=...")
+doc = extract("audio.mp3")
+doc = extract("video.mp4")
+
+# Access content
+print(doc.text[:500])     # Plain text
+print(doc.tables[0].rows) # Tables
+print(doc.metadata)        # Title, author, dates, etc.
+
+# RAG
+doc.chunks(strategy="sentence_window", size=5)
+results = doc.search("machine learning", mode="hybrid")
+answer = doc.ask("What are the key findings?")
+
+# AI
+print(doc.summary())       # AI summary
+print(doc.entities())      # Named entities
+
+# Export
+doc.to_chromadb(collection_name="docs")
+print(doc.to_json(indent=2))
 ```
 
-### Batch & Async
+## Supported Formats
 
+| Format | Extensions | Extracted Content |
+|--------|-----------|-------------------|
+| PDF | .pdf | text, tables, images, metadata, OCR |
+| DOCX | .docx, .doc | paragraphs, tables, images, metadata |
+| PPTX | .pptx, .ppt | slides, tables, images, speaker notes |
+| XLSX | .xlsx, .xls | worksheets, tables, multiple sheets |
+| HTML | .html, .htm | headings, tables, links, meta tags |
+| Markdown | .md, .markdown | headings, code blocks, tables, frontmatter |
+| CSV | .csv | tables, row/column metadata |
+| JSON | .json | pretty-print, table from list-of-dicts |
+| Image | .png, .jpg, .jpeg, .tiff, .bmp, .webp | metadata, OCR text |
+| EPUB | .epub | text, tables, images, metadata |
+| YouTube | — | transcript, timestamps, chapters |
+| Notion | — | pages, databases, 14 block types |
+| **Audio** | .mp3, .wav, .flac, .m4a, .ogg, .wma, .aac, .opus | transcribed text, segments |
+| **Video** | .mp4, .avi, .mov, .mkv, .webm, .flv, .wmv | key-frame images, transcript |
+
+## Features
+
+### Chunking (6 strategies)
+fixed_size, by_page, by_heading, semantic, by_token, **sentence_window**
+
+### AI Providers (10)
+OpenAI, Anthropic, Gemini, Ollama, **Azure**, **Bedrock**, **Groq**, **Together**, **DeepSeek**, **Mistral**
+
+### RAG
+- Hybrid search (dense + BM25)
+- Metadata filtering
+- ChromaDB / FAISS vector stores
+- Contextual compression
+- Extract-and-index pipeline
+
+### Agent Tools
+- Function calling / structured output
+- Streaming responses
+- Rate limiter
+- Cost tracking
+- Query expansion (HyDE + multi-query)
+- Batch processing
+
+### Media
+- Audio transcription (Whisper / transformers)
+- Video frame extraction + transcription
+
+### Quality
+- Document quality scoring (0-100)
+- PII redaction
+- Magic-byte format detection
+- Per-file cache with TTL
+
+### Web Crawling
 ```python
-from runeextract import extract_many, extract_many_async
-
-docs = extract_many(["a.pdf", "b.docx", "c.html"])
-
-docs = await extract_many_async(["a.pdf", "b.docx", "c.html"], max_concurrency=4)
+from runeextract import extract_crawl
+docs = extract_crawl("https://example.com", max_pages=20)
 ```
+
+## More Examples
+
+See the [docs/](docs/) directory for detailed guides:
+
+| Document | Description |
+|----------|-------------|
+| [features.md](docs/features.md) | Complete feature reference |
+| [usage.md](docs/usage.md) | Installation, CLI, config, plugins |
+| [examples.md](docs/examples.md) | Rich code examples for every feature |
+| [ai.md](docs/ai.md) | AI provider details, cost tracking, rate limiting |
+| [rag.md](docs/rag.md) | Chunking, search, vector stores, question answering |
 
 ### CLI
 
 ```bash
 runeextract file.pdf --ocr --chunking semantic --tree
+runeextract file.pdf --summary --keywords
 runeextract https://youtube.com/watch?v=... --youtube-format transcript
-runeextract scanned.pdf --ocr --output-dir ./output
-runeextract ./docs --watch         # Watch directory for new files
+runeextract ./docs --watch
+runeextract file.pdf --ask "What is this about?"
+runeextract file.pdf --json --output-dir ./output
 ```
 
-## Supported Formats
-
-| Format | Status | Content Extracted |
-|--------|--------|-------------------|
-| PDF | ✅ v0.2.0 | text, tables, images, metadata, scanned-page OCR |
-| DOCX | ✅ v0.2.0 | paragraphs, tables, images, metadata, image OCR |
-| PPTX | ✅ v0.2.0 | slides, tables, images, metadata, speaker notes, image OCR |
-| XLSX | ✅ v0.2.0 | worksheets, tables, metadata, multiple sheets |
-| HTML | ✅ v0.2.0 | headings, paragraphs, tables, links, meta tags |
-| Markdown | ✅ v0.2.0 | headings, lists, code blocks, tables, frontmatter |
-| CSV | ✅ v0.2.0 | tables, text, row/column metadata |
-| JSON | ✅ v0.2.0 | pretty-print, table from list-of-dicts |
-| Images (PNG/JPG/TIFF/BMP/WebP) | ✅ v0.2.0 | metadata (width, height, format), OCR text |
-| EPUB | ✅ v0.2.0 | text, tables, images, metadata (title, author, etc.) |
-| YouTube | ✅ v0.2.0 | transcript, timestamps, chapters, metadata |
-| Notion | ✅ v0.2.0 | pages, databases, 14 block types, async |
-
-## Features
-
-### Intelligent Chunking
-
-```python
-chunks = doc.chunks(
-    strategy="semantic",  # by_page, by_heading, semantic, fixed_size
-    size=1000
-)
-```
-
-### AI Processing (optional)
-
-```python
-doc = extract("report.pdf")
-print(doc.summary())
-print(doc.keywords())
-print(doc.entities())
-print(doc.questions())
-print(doc.flashcards())
-```
-
-### OCR (optional)
-
-```python
-doc = extract("invoice.jpg", ocr=True, ocr_lang="en,fr")
-```
-
-### Streaming
-
-```python
-from runeextract import extract_stream
-
-async for page_doc in extract_stream("large.pdf"):
-    process(page_doc)
-```
-
-### Plugin System
-
-```python
-from runeextract.core.registry import register_extractor
-
-@register_extractor(".txt")
-class TxtExtractor(BaseExtractor):
-    def extract(self, file_path):
-        return Document(text=open(file_path).read(), source_type="txt")
-```
-
-### Configuration
+## Test Suite
 
 ```bash
-export RUNEEXTRACT_OCR=true
-export RUNEEXTRACT_MAX_FILE_SIZE=999999999
-```
-
-Or create `~/.runeextract.json`:
-```json
-{"ocr": true, "tables": false, "max_file_size": 1000000}
-```
-
-### Caching
-
-```python
-from runeextract.core.cache import ExtractionCache
-cache = ExtractionCache(ttl=3600)
-```
-
-## Project Structure
-
-```
-runeextract/
-├── __init__.py          # Public API (extract, extract_many, extract_async, etc.)
-├── config.py            # Configuration system (env, JSON, pyproject.toml)
-├── exceptions.py        # Custom exception hierarchy
-├── cli/main.py          # 14 CLI flags
-├── core/
-│   ├── extractor.py     # BaseExtractor, StreamingExtractor
-│   ├── router.py        # ExtractorRouter (19 file extensions)
-│   ├── registry.py      # Plugin registry with entry-point discovery
-│   ├── cache.py         # diskcache/JSON cache layer
-│   ├── schemas.py       # ExtractionOptions, ExtractionResult
-│   └── streaming.py     # get_streaming_extractor, wrapped fallback
-├── extractors/
-│   ├── pdf/             # PDF (PyMuPDF + pdfplumber)
-│   ├── docx/            # DOCX (python-docx)
-│   ├── pptx/            # PPTX (python-pptx)
-│   ├── xlsx/            # XLSX (openpyxl)
-│   ├── html/            # HTML (BeautifulSoup)
-│   ├── markdown/        # Markdown (markdown-it-py)
-│   ├── csv/             # CSV (stdlib csv)
-│   ├── json/            # JSON (stdlib json)
-│   ├── image/           # Image (Pillow + easyocr)
-│   ├── epub/            # EPUB (EbookLib)
-│   ├── youtube/         # YouTube (youtube-transcript-api + yt-dlp)
-│   └── notion/          # Notion (REST API + aiohttp)
-├── processors/
-│   ├── ocr.py           # easyocr-based OCR
-│   └── ai.py            # OpenAI / local transformers AI processor
-├── models/
-│   └── document.py      # Document, Table, Image, Chunk, ChunkingStrategy
-└── tests/
-    ├── 103 tests across 18 files
-    └── benchmarks/
+pip install -e ".[dev]"
+pytest runeextract/tests/   # 184 tests
 ```
 
 ## Architecture
 
 ```
-File/URL → Router (detects type) → Extractor → Document (unified schema)
-```
-
-## Development
-
-```bash
-pip install -e ".[dev]"
-pytest                     # 103 tests
+File/URL → Router (magic-byte detection) → Extractor → Document (unified schema)
+                                                          ↓
+                                                    Chunking → Search → RAG
+                                                          ↓
+                                                    AI → Summary, Entities, Q&A
+                                                          ↓
+                                                    Export → JSON, Markdown, Vector DB
 ```
 
 ## License
@@ -206,14 +159,10 @@ MIT — see [LICENSE](LICENSE).
 
 ## Why RuneExtract?
 
-Instead of learning PyMuPDF, python-docx, BeautifulSoup, EasyOCR, etc.:
+Instead of learning PyMuPDF, python-docx, BeautifulSoup, EasyOCR, Whisper, OpenCV, etc.:
 
 ```python
 extract(anything)
 ```
 
 That simplicity is the entire product.
-
----
-
-**RuneExtract v0.2.0 — One API to extract them all.**
