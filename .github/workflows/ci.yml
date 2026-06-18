@@ -10,60 +10,59 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ruff codespell pre-commit
-      - name: Lint with ruff
-        run: ruff check runeextract
-      - name: Format check with ruff
-        run: ruff format --check runeextract
-      - name: Spell check with codespell
-        run: codespell --skip=*.pyc --ignore-words-list=ine,ser
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: pip
+    - run: pip install "ruff>=0.1.0,<1.0.0"
+    - run: ruff check runeextract/ --output-format=github
+    - run: ruff format runeextract/ --check
 
   test:
-    runs-on: ubuntu-latest
+    needs: lint
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install .[dev]
-      - name: Test with pytest
-        run: |
-          pytest runeextract/tests/ --cov=runeextract --cov-report=term-missing
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
-  benchmark:
+    - name: Install system deps (Linux)
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng
+
+    - name: Install package (core only)
+      run: pip install -e ".[dev]"
+
+    - name: Run tests
+      run: pytest runeextract/tests/ -v --tb=short -x
+
+  docker:
+    needs: test
     runs-on: ubuntu-latest
-    needs: [test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install .[dev] pytest-benchmark
-      - name: Run benchmarks
-        run: |
-          pytest runeextract/tests/benchmarks/ --benchmark-only --benchmark-json benchmark.json
-      - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results
-          path: benchmark.json
+    - uses: actions/checkout@v4
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Build and push
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        push: true
+        tags: ghcr.io/${{ github.repository }}:latest

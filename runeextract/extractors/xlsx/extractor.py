@@ -5,8 +5,10 @@ XLSX extractor using openpyxl.
 import logging
 from openpyxl import load_workbook
 from typing import List, Dict, Any
+from io import BytesIO
 from runeextract.core.extractor import BaseExtractor
 from runeextract.models.document import Document as RuneDocument, Table
+from runeextract.exceptions import ExtractionError, WrongPasswordError
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +18,11 @@ class XlsxExtractor(BaseExtractor):
 
     def extract(self, file_path: str) -> RuneDocument:
         self.validate_file(file_path)
-        wb = load_workbook(file_path, read_only=True, data_only=True)
+        password = self.options.get('password')
+        if password:
+            wb = self._open_protected(file_path, password)
+        else:
+            wb = load_workbook(file_path, read_only=True, data_only=True)
         try:
             text_parts: List[str] = []
             tables: List[Table] = []
@@ -50,6 +56,26 @@ class XlsxExtractor(BaseExtractor):
             wb.close()
         return RuneDocument(text=text, tables=tables, images=[], metadata=metadata,
                             source_type="xlsx", source_path=file_path)
+
+    @staticmethod
+    def _open_protected(file_path: str, password: str):
+        try:
+            import msoffcrypto
+        except ImportError:
+            raise ExtractionError(
+                "Password-protected XLSX requires msoffcrypto-tool. Install: pip install msoffcrypto-tool",
+                file_path=file_path, error_code="E004"
+            )
+        with open(file_path, "rb") as f:
+            decrypted = BytesIO()
+            office_file = msoffcrypto.OfficeFile(f)
+            try:
+                office_file.load_key(password=password)
+            except Exception:
+                raise WrongPasswordError(file_path)
+            office_file.decrypt(decrypted)
+        decrypted.seek(0)
+        return load_workbook(decrypted, read_only=True, data_only=True)
 
     def _extract_metadata(self, wb) -> Dict[str, Any]:
         metadata = {}

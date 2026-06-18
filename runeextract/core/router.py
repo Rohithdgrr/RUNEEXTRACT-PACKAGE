@@ -1,23 +1,19 @@
-"""
+﻿"""
 File type router for selecting appropriate extractor.
 """
 
 import logging
 import os
+import ipaddress
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict
+from urllib.parse import urlparse
 from runeextract.core.extractor import BaseExtractor
 from runeextract.core.registry import ExtractorRegistry
-from runeextract.exceptions import UnsupportedFormatError
+from runeextract.exceptions import UnsupportedFormatError, URLBlockedError, SSRFBlockedError, SecurityError, PathTraversalError, BombDetectionError
+from runeextract.utils.logging import log_security_event
 
 logger = logging.getLogger(__name__)
-
-# URL-based extractors: (detect function, module path)
-_URL_EXTRACTORS = [
-    ("runeextract.extractors.youtube.extractor.YoutubeExtractor", None),
-    ("runeextract.extractors.notion.extractor.NotionExtractor", None),
-]
-
 
 def _detect_youtube(file_path: str) -> bool:
     import re
@@ -44,20 +40,44 @@ _URL_EXTRACTORS = [
 # Magic-bytes for content-based format detection (first 8 bytes)
 _MAGIC_BYTES: dict[bytes, str] = {
     b'%PDF': '.pdf',
-    b'PK\x03\x04': '.docx',       # ZIP-based (DOCX/XLSX/PPTX — check further)
-    b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1': '.doc',  # OLE2 (old .doc/.ppt/.xls)
+    b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1': '.doc',
     b'\x89PNG\r\n\x1a\n': '.png',
     b'\xff\xd8\xff': '.jpg',
-    b'II*\x00': '.tiff',           # TIFF little-endian
-    b'MM\x00*': '.tiff',           # TIFF big-endian
+    b'II*\x00': '.tiff',
+    b'MM\x00*': '.tiff',
     b'GIF87a': '.gif',
     b'GIF89a': '.gif',
-    b'RIFF': '.webp',              # WebP (RIFF + WEBP)
+    b'RIFF': '.webp',
     b'<!DOCTYPE html': '.html',
     b'<html': '.html',
     b'<svg': '.svg',
-    b'PK\x03\x04': '.zip',         # Generic ZIP fallback
 }
+
+
+_MAX_ZIP_RATIO = 100  # max decompression ratio for zip bomb detection
+_MAX_ZIP_FILES = 10000  # max entries in a zip archive
+
+
+def _check_zip_bomb(file_path: str) -> None:
+    """Detect zip bombs by checking compression ratio and entry count."""
+    import zipfile
+    try:
+        with zipfile.ZipFile(file_path) as zf:
+            info_list = zf.infolist()
+            if len(info_list) > _MAX_ZIP_FILES:
+                raise BombDetectionError(
+                    f"Archive contains {len(info_list)} entries (max {_MAX_ZIP_FILES})",
+                    file_path=file_path
+                )
+            compressed = sum(inf.compress_size for inf in info_list)
+            uncompressed = sum(inf.file_size for inf in info_list)
+            if compressed > 0 and uncompressed / compressed > _MAX_ZIP_RATIO:
+                raise BombDetectionError(
+                    f"Archive compression ratio {uncompressed // compressed}x exceeds limit {_MAX_ZIP_RATIO}x",
+                    file_path=file_path
+                )
+    except (zipfile.BadZipFile, OSError):
+        pass
 
 
 def _detect_by_magic(file_path: str) -> Optional[str]:
@@ -100,7 +120,7 @@ def _detect_by_magic(file_path: str) -> Optional[str]:
                     return '.xlsx'
                 if 'ppt/presentation.xml' in names:
                     return '.pptx'
-        except Exception:
+        except (zipfile.BadZipFile, OSError):
             pass
         return '.zip'
 
@@ -114,6 +134,143 @@ def _detect_by_magic(file_path: str) -> Optional[str]:
         return '.html'
 
     return None
+
+
+class URLValidator:
+    """Validate URLs against security policies to prevent SSRF and other attacks.
+
+    Blocks private/internal IPs, localhost, and non-HTTP schemes.
+    """
+
+    ALLOWED_SCHEMES = {"http", "https"}
+    ALLOWED_PORTS = {80, 443, 8080, 8443}
+    BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "255.255.255.255"}
+    _DNS_CACHE: Dict[str, str] = {}
+
+    @classmethod
+    def validate(cls, url: str) -> None:
+        parsed = urlparse(url)
+        if parsed.scheme not in cls.ALLOWED_SCHEMES:
+            log_security_event("url_blocked", level="WARNING", url=url,
+                               reason=f"scheme {parsed.scheme}", error_code="E101")
+            raise URLBlockedError(url, reason=f"scheme '{parsed.scheme}' not allowed")
+        hostname = parsed.hostname
+        if not hostname:
+            raise URLBlockedError(url, reason="no hostname")
+        if hostname.lower() in cls.BLOCKED_HOSTS:
+            log_security_event("ssrf_blocked", level="WARNING", url=url,
+                               reason="localhost", error_code="E102")
+            raise SSRFBlockedError(url)
+        if parsed.port is not None and parsed.port not in cls.ALLOWED_PORTS:
+            log_security_event("port_blocked", level="WARNING", url=url,
+                               reason=f"port {parsed.port}", error_code="E101")
+            raise URLBlockedError(url, reason=f"port {parsed.port} not allowed")
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback or ip.is_reserved:
+                log_security_event("ssrf_blocked", level="WARNING", url=url,
+                                   reason=f"private ip {hostname}", error_code="E102")
+                raise SSRFBlockedError(url)
+        except ValueError:
+            cls._validate_dns(hostname, url)
+
+    @classmethod
+    def _validate_dns(cls, hostname: str, url: str) -> None:
+        """Resolve hostname and check if it points to a private IP."""
+        import socket
+        try:
+            resolved = cls._DNS_CACHE.get(hostname)
+            if resolved is None:
+                resolved = socket.gethostbyname(hostname)
+                cls._DNS_CACHE[hostname] = resolved
+            ip = ipaddress.ip_address(resolved)
+            if ip.is_private or ip.is_loopback or ip.is_reserved:
+                log_security_event("ssrf_blocked", level="WARNING", url=url,
+                                   reason=f"dns resolved to private {resolved}", error_code="E102")
+                raise SSRFBlockedError(url)
+        except SSRFBlockedError:
+            raise
+        except OSError:
+            pass
+
+    @classmethod
+    def validate_redirect_target(cls, url: str) -> str:
+        """Validate URL after following a redirect (SSRF via redirect).
+
+        Returns the final URL if safe, or None if validation fails.
+        """
+        import requests
+        cls.validate(url)
+        resp = requests.head(url, timeout=15, allow_redirects=True)
+        final_url = resp.url
+        if final_url != url:
+            cls.validate(final_url)
+        return final_url
+
+
+def _check_path_traversal(file_path: str) -> None:
+    """Detect path traversal attempts and null bytes in file paths.
+
+    Raises PathTraversalError if the path is unsafe.
+    """
+    if "\x00" in file_path:
+        raise PathTraversalError(file_path)
+    cleaned = file_path.replace("\\", "/")
+    if "/../" in cleaned or "/.." == cleaned or cleaned.startswith("../") or cleaned == "..":
+        raise PathTraversalError(file_path)
+
+
+def verify_file_type(file_path: str, expected_ext: str) -> bool:
+    """Verify file content matches expected extension via magic bytes.
+
+    Prevents extension-spoofing attacks. Returns True if the file's
+    binary signature is consistent with its extension.
+
+    Raises OSError if the file cannot be read (never silently returns True).
+    """
+    expected_ext = expected_ext.lstrip(".").lower()
+    MAGIC = {
+        "pdf": [b"%PDF"],
+        "png": [b"\x89PNG\r\n\x1a\n"],
+        "jpg": [b"\xff\xd8\xff"],
+        "jpeg": [b"\xff\xd8\xff"],
+        "gif": [b"GIF87a", b"GIF89a"],
+        "webp": [b"RIFF"],
+        "mp3": [b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"],
+        "wav": [b"RIFF"],
+    }
+    ZIP_BASED = {"docx": "word/document.xml", "xlsx": "xl/workbook.xml",
+                  "pptx": "ppt/presentation.xml", "epub": "mimetype"}
+
+    with open(file_path, "rb") as f:
+        header = f.read(32)
+
+    sigs = MAGIC.get(expected_ext, [])
+    if not sigs and expected_ext not in ZIP_BASED and expected_ext != "html":
+        return True
+
+    for sig in sigs:
+        if header.startswith(sig):
+            if expected_ext == "webp" and header[8:12] != b"WEBP":
+                return False
+            if expected_ext == "wav" and header[8:12] != b"WAVE":
+                return False
+            return True
+
+    if expected_ext in ZIP_BASED and header.startswith(b"PK\x03\x04"):
+        import zipfile
+        try:
+            with zipfile.ZipFile(file_path) as zf:
+                return any(ZIP_BASED[expected_ext] in n for n in zf.namelist())
+        except zipfile.BadZipFile:
+            return False
+
+    if expected_ext == "html":
+        stripped = header.lstrip(b"\xef\xbb\xbf\xfe\xff ")
+        if stripped.lower().startswith((b"<!doctype html", b"<html")):
+            return True
+
+    return False
 
 
 class ExtractorRouter:
@@ -175,6 +332,10 @@ class ExtractorRouter:
         Raises:
             UnsupportedFormatError: If no extractor is available
         """
+        # Security: check for path traversal in local paths
+        if not file_path.startswith(("http://", "https://", "ftp://")):
+            _check_path_traversal(file_path)
+        
         # Check URL-based extractors first
         for detector, module_path in _URL_EXTRACTORS:
             if detector(file_path):
@@ -192,13 +353,21 @@ class ExtractorRouter:
             extractor_class = ExtractorRegistry.get_extractor(extension)
             return extractor_class(**kwargs)
         
-        # Fall back to built-in extractors
+        # Fall back to built-in extractors; verify file type if local file
         if extension in cls.BUILTIN_EXTRACTORS:
+            if os.path.isfile(file_path):
+                _check_zip_bomb(file_path)
+                if not verify_file_type(file_path, extension):
+                    log_security_event("extension_spoof", level="WARNING", file_path=file_path,
+                                       reason=f"magic bytes don't match {extension}", error_code="E100")
+                    raise SecurityError(f"File type mismatch: {file_path} appears to be a different format than {extension}",
+                                        file_path=file_path, error_code="E100")
             module_path = cls.BUILTIN_EXTRACTORS[extension]
             return cls._import_extractor(module_path, **kwargs)
         
         # Content-based detection via magic bytes
         if os.path.isfile(file_path):
+            _check_zip_bomb(file_path)
             magic_ext = _detect_by_magic(file_path)
             if magic_ext:
                 if magic_ext in cls.BUILTIN_EXTRACTORS:
@@ -296,3 +465,4 @@ class ExtractorRouter:
             'wmv': 'video',
         }
         return ext_map.get(ext, ext)
+

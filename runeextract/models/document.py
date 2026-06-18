@@ -6,11 +6,13 @@ import json
 import re
 import uuid
 import logging
-import struct
-import random
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any, Optional, Callable, Union, Tuple
 from enum import Enum
+
+from runeextract.exceptions import ImageSizeError
+
+_MAX_IMAGE_SIZE = 50 * 1024 * 1024  # 50 MB max per embedded image
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,7 @@ class ChunkingStrategy(str, Enum):
     FIXED_SIZE = "fixed_size"
     BY_TOKEN = "by_token"
     SENTENCE_WINDOW = "sentence_window"
+    HIERARCHICAL = "hierarchical"
 
 
 @dataclass
@@ -53,6 +56,10 @@ class Image:
     page_number: Optional[int] = None
     caption: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self):
+        if len(self.data) > _MAX_IMAGE_SIZE:
+            raise ImageSizeError(len(self.data), _MAX_IMAGE_SIZE)
 
 
 @dataclass
@@ -155,6 +162,12 @@ class Document:
             self._chunks = self._chunk_by_token(size, overlap, **kwargs)
         elif strategy == ChunkingStrategy.SENTENCE_WINDOW:
             self._chunks = self._chunk_sentence_window(size, overlap, **kwargs)
+        elif strategy == ChunkingStrategy.HIERARCHICAL:
+            leaf_size = kwargs.get("leaf_size", 300)
+            self._chunks = self._chunk_sentence_window(leaf_size, overlap=0, **kwargs)
+            for c in self._chunks:
+                c.metadata["strategy"] = "hierarchical"
+                c.metadata["level"] = 0
         else:
             raise ValueError(f"Unknown chunking strategy: {strategy}")
 
@@ -735,8 +748,19 @@ class Document:
 
         return index, metadata_list
 
+    _shared_ai = None
+
+    def _get_ai(self, ai_processor=None):
+        if ai_processor is not None:
+            return ai_processor
+        if self.__class__._shared_ai is None:
+            from runeextract.processors.ai import AIProcessor
+            self.__class__._shared_ai = AIProcessor()
+        return self.__class__._shared_ai
+
     def search(self, query: str, top_k: int = 5, mode: str = "hybrid",
-               metadata_filter: Optional[Dict[str, Any]] = None) -> List[Tuple[Chunk, float]]:
+               metadata_filter: Optional[Dict[str, Any]] = None,
+               ai_processor=None) -> List[Tuple[Chunk, float]]:
         """Search chunks using hybrid (dense + BM25) retrieval.
 
         Args:
@@ -768,8 +792,7 @@ class Document:
         scores = {}
 
         if mode in ("dense", "hybrid"):
-            from runeextract.processors.ai import AIProcessor
-            ai = AIProcessor()
+            ai = self._get_ai(ai_processor)
             query_embedding = ai.embed(query)[0]
             import numpy as np
             chunk_texts = [c.text for c in chunks]
@@ -815,7 +838,7 @@ class Document:
         """
         return self.search(query, top_k=top_k, mode="dense")
 
-    def ask(self, question: str, top_k: int = 5) -> str:
+    def ask(self, question: str, top_k: int = 5, ai_processor=None) -> str:
         """Ask a question about the document using RAG (retrieve + answer).
 
         Args:
@@ -829,11 +852,11 @@ class Document:
         if not results:
             return "No content available to answer the question."
         context = "\n\n".join(chunk.text for chunk, _ in results)
-        from runeextract.processors.ai import AIProcessor
-        ai = AIProcessor()
+        ai = self._get_ai(ai_processor)
         return ai.answer_question(question, context)
 
-    def compress(self, query: str, top_k: int = 5, max_tokens: int = 2000) -> str:
+    def compress(self, query: str, top_k: int = 5, max_tokens: int = 2000,
+                 ai_processor=None) -> str:
         """Retrieve, rerank, and compress chunks into a concise context for a query.
 
         Uses LLM to extract only the sentences relevant to the query from top chunks,
@@ -852,8 +875,7 @@ class Document:
             return ""
 
         texts = [chunk.text for chunk, _ in results]
-        from runeextract.processors.ai import AIProcessor
-        ai = AIProcessor()
+        ai = self._get_ai(ai_processor)
         reranked = ai.rerank(query, texts, top_k=min(top_k, 3))
         reranked_texts = [t for t, _ in reranked]
 
@@ -895,32 +917,22 @@ class Document:
             docs.append(LlamaindexDocument(text=chunk.text, extra_info=extra))
         return docs
 
-    def summary(self, max_words: int = 200) -> str:
-        """AI-powered text summary (requires openai + OPENAI_API_KEY)."""
-        from runeextract.processors.ai import AIProcessor
-        ai = AIProcessor()
+    def summary(self, max_words: int = 200, ai_processor=None) -> str:
+        ai = self._get_ai(ai_processor)
         return ai.summarize(self.text, max_words=max_words)
 
-    def keywords(self, top_n: int = 10) -> List[str]:
-        """AI-powered keyword extraction."""
-        from runeextract.processors.ai import AIProcessor
-        ai = AIProcessor()
+    def keywords(self, top_n: int = 10, ai_processor=None) -> List[str]:
+        ai = self._get_ai(ai_processor)
         return ai.extract_keywords(self.text, top_n=top_n)
 
-    def entities(self) -> List[Dict[str, str]]:
-        """AI-powered named entity extraction."""
-        from runeextract.processors.ai import AIProcessor
-        ai = AIProcessor()
+    def entities(self, ai_processor=None) -> List[Dict[str, str]]:
+        ai = self._get_ai(ai_processor)
         return ai.extract_entities(self.text)
 
-    def questions(self, n: int = 5) -> List[str]:
-        """AI-powered question generation."""
-        from runeextract.processors.ai import AIProcessor
-        ai = AIProcessor()
+    def questions(self, n: int = 5, ai_processor=None) -> List[str]:
+        ai = self._get_ai(ai_processor)
         return ai.generate_questions(self.text, n=n)
 
-    def flashcards(self, n: int = 10) -> List[Dict[str, str]]:
-        """AI-powered flashcard generation."""
-        from runeextract.processors.ai import AIProcessor
-        ai = AIProcessor()
+    def flashcards(self, n: int = 10, ai_processor=None) -> List[Dict[str, str]]:
+        ai = self._get_ai(ai_processor)
         return ai.generate_flashcards(self.text, n=n)

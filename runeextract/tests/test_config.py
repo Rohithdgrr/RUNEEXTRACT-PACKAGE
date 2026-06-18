@@ -61,7 +61,9 @@ def test_config_env_override_bool_false(monkeypatch):
 def test_config_merge_extra():
     cfg = RuneExtractConfig()
     merged = cfg.merge_options(ai_model="gpt-4", ai_temperature=0.5)
-    assert merged.extra == {}
+    assert merged.extra == {"ai_model": "gpt-4", "ai_temperature": 0.5}
+    assert merged.ocr is False  # base field unchanged
+    assert merged.chunk_size == 1000  # base field unchanged
 
 
 def test_get_set_config():

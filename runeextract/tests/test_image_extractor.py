@@ -4,7 +4,7 @@ import os
 import tempfile
 import pytest
 from runeextract import extract
-from runeextract.exceptions import UnsupportedFormatError, CorruptFileError
+from runeextract.exceptions import UnsupportedFormatError, CorruptFileError, SecurityError
 
 
 def _make_png(path):
@@ -46,7 +46,7 @@ def test_image_corrupt():
         f.write(b"not a real png file")
         path = f.name
     try:
-        with pytest.raises(CorruptFileError):
+        with pytest.raises((CorruptFileError, SecurityError)):
             extract(path)
     finally:
         if os.path.exists(path):

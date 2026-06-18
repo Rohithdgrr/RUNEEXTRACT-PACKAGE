@@ -1,5 +1,12 @@
-include LICENSE
+recursive-include runeextract *.py
 include README.md
+include LICENSE
+include pyproject.toml
+include setup.py
 include CHANGELOG.md
-include runeextract/py.typed
-recursive-include docs *.md
+graft docs
+prune .github
+prune .pytest_cache
+prune __pycache__
+global-exclude *.pyc
+global-exclude __pycache__

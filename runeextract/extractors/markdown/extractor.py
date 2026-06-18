@@ -1,9 +1,7 @@
-"""
-Markdown extractor using markdown-it-py.
-"""
+"""Markdown extractor (zero additional dependencies)."""
 
 import logging
-from markdown_it import MarkdownIt
+import re
 from pathlib import Path
 from typing import List, Dict, Any
 from runeextract.core.extractor import BaseExtractor
@@ -11,102 +9,79 @@ from runeextract.models.document import Document as RuneDocument, Table
 
 logger = logging.getLogger(__name__)
 
+_HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)$', re.MULTILINE)
+_BULLET_RE = re.compile(r'^[\s]*[-*+]\s+(.*)$', re.MULTILINE)
+_ORDERED_RE = re.compile(r'^[\s]*\d+[.)]\s+(.*)$', re.MULTILINE)
+_FENCE_RE = re.compile(r'^```', re.MULTILINE)
+_HR_RE = re.compile(r'^[-*_]{3,}\s*$', re.MULTILINE)
+_INLINE_CODE_RE = re.compile(r'`([^`]+)`')
+_LINK_RE = re.compile(r'\[([^\]]+)\]\([^)]+\)')
+_IMAGE_RE = re.compile(r'!\[([^\]]*)\]\([^)]+\)')
+_BOLD_RE = re.compile(r'\*\*(.+?)\*\*')
+_ITALIC_RE = re.compile(r'\*(.+?)\*')
+
 
 class MarkdownExtractor(BaseExtractor):
-    """Extractor for Markdown files."""
-    
+    """Extractor for Markdown files (zero extra deps)."""
+
     def extract(self, file_path: str) -> RuneDocument:
-        """
-        Extract content from a Markdown file.
-        
-        Args:
-            file_path: Path to the Markdown file
-            
-        Returns:
-            Document object with extracted content
-        """
         self.validate_file(file_path)
-        
         with open(file_path, 'r', encoding='utf-8') as f:
-            markdown_content = f.read()
-        
-        text = ""
-        tables: List[Table] = []
-        metadata: Dict[str, Any] = {}
-        
-        # Parse markdown
-        md = MarkdownIt()
-        tokens = md.parse(markdown_content)
-        
-        # Extract content
-        text, tables, metadata = self._parse_tokens(tokens, markdown_content)
-        
-        # Clean text
-        text = self.clean_text(text)
-        
+            content = f.read()
+        metadata = self._extract_frontmatter(content)
+        body = self._strip_frontmatter(content)
+        text = self._render_body(body)
+        tables = self._extract_tables(body)
         return RuneDocument(
-            text=text,
+            text=self.clean_text(text),
             tables=tables,
             images=[],
             metadata=metadata,
             source_type="markdown",
-            source_path=file_path
+            source_path=file_path,
         )
-    
-    def _parse_tokens(self, tokens, markdown_content: str) -> tuple[str, List[Table], Dict[str, Any]]:
-        """Parse markdown tokens to extract structured content."""
-        text = ""
-        tables: List[Table] = []
-        metadata: Dict[str, Any] = {}
-        
-        # Extract frontmatter (YAML metadata)
-        metadata = self._extract_frontmatter(markdown_content)
-        
-        # Extract text and tables from tokens
-        for token in tokens:
-            if token.type == 'heading_open':
-                level = token.tag
-                text += "#" * int(level[1:]) + "\n\n"
-            elif token.type == 'heading_close':
-                text += "\n\n"
-            elif token.type == 'paragraph_open':
-                text += "\n"
-            elif token.type == 'paragraph_close':
-                text += "\n\n"
-            elif token.type == 'inline':
-                if token.children:
-                    for child in token.children:
-                        if child.type == 'text':
-                            text += child.content
-                        elif child.type == 'code_inline':
-                            text += f"`{child.content}`"
-                        elif child.type == 'softbreak':
-                            text += " "
-            elif token.type == 'bullet_list_open':
-                text += "\n"
-            elif token.type == 'list_item_open':
-                text += "• "
-            elif token.type == 'list_item_close':
-                text += "\n"
-            elif token.type == 'ordered_list_open':
-                text += "\n"
-            elif token.type == 'fence':
-                text += f"\n```\n{token.content}\n```\n\n"
-            elif token.type == 'code_block':
-                text += f"\n```\n{token.content}\n```\n\n"
-            elif token.type == 'table_open':
-                # Start of table
-                pass
-            elif token.type == 'table_close':
-                # End of table - tables are handled separately
-                pass
-            elif token.type == 'hr':
-                text += "\n---\n\n"
-        
-        # Extract tables separately
-        tables = self._extract_tables(markdown_content)
-        
-        return text, tables, metadata
+
+    def _strip_frontmatter(self, content: str) -> str:
+        lines = content.split('\n')
+        if lines and lines[0].strip() == '---':
+            for i, line in enumerate(lines[1:], start=1):
+                if line.strip() == '---':
+                    return '\n'.join(lines[i + 1:])
+        return content
+
+    def _render_body(self, body: str) -> str:
+        lines = body.split('\n')
+        out = []
+        in_code = False
+        for line in lines:
+            if _FENCE_RE.match(line):
+                in_code = not in_code
+                out.append('')
+                continue
+            if in_code:
+                out.append(line)
+                continue
+            if _HR_RE.match(line):
+                out.append('')
+                continue
+            line = _IMAGE_RE.sub(r'[image: \1]', line)
+            line = _LINK_RE.sub(r'\1', line)
+            line = _BOLD_RE.sub(r'\1', line)
+            line = _ITALIC_RE.sub(r'\1', line)
+            line = _INLINE_CODE_RE.sub(r'`\1`', line)
+            m = _HEADING_RE.match(line)
+            if m:
+                level = len(m.group(1))
+                out.append(f"{'#' * level} {m.group(2)}")
+                continue
+            m = _BULLET_RE.match(line)
+            if m:
+                out.append(m.group(1))
+                continue
+            out.append(line)
+        text = '\n'.join(out)
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        return text
     
     def _extract_frontmatter(self, markdown_content: str) -> Dict[str, Any]:
         """Extract YAML frontmatter from markdown."""

@@ -1,6 +1,6 @@
 # RuneExtract
 
-**One extraction API for every document type.** v0.4.0
+**One extraction API for every document type.** v0.6.0-dev
 
 RuneExtract is a universal document extraction library that provides a single, consistent API for extracting content from any file type — PDFs, DOCX, HTML, images, audio, video, YouTube, Notion, and more.
 
@@ -69,16 +69,16 @@ print(doc.to_json(indent=2))
 | EPUB | .epub | text, tables, images, metadata |
 | YouTube | — | transcript, timestamps, chapters |
 | Notion | — | pages, databases, 14 block types |
-| **Audio** | .mp3, .wav, .flac, .m4a, .ogg, .wma, .aac, .opus | transcribed text, segments |
-| **Video** | .mp4, .avi, .mov, .mkv, .webm, .flv, .wmv | key-frame images, transcript |
+| Audio | .mp3, .wav, .flac, .m4a, .ogg, .wma, .aac, .opus | transcribed text, segments |
+| Video | .mp4, .avi, .mov, .mkv, .webm, .flv, .wmv | key-frame images, transcript |
 
 ## Features
 
 ### Chunking (6 strategies)
-fixed_size, by_page, by_heading, semantic, by_token, **sentence_window**
+fixed_size, by_page, by_heading, semantic, by_token, sentence_window
 
 ### AI Providers (10)
-OpenAI, Anthropic, Gemini, Ollama, **Azure**, **Bedrock**, **Groq**, **Together**, **DeepSeek**, **Mistral**
+OpenAI, Anthropic, Gemini, Ollama, Azure, Bedrock, Groq, Together, DeepSeek, Mistral
 
 ### RAG
 - Hybrid search (dense + BM25)
@@ -86,8 +86,29 @@ OpenAI, Anthropic, Gemini, Ollama, **Azure**, **Bedrock**, **Groq**, **Together*
 - ChromaDB / FAISS vector stores
 - Contextual compression
 - Extract-and-index pipeline
+- Auto-RAG (zero-config pipeline)
+- Hierarchical / RAPTOR chunking
+- Multi-modal RAG (text + tables + images)
+- Citation engine (auto-cite with `[N]` markers)
+
+### Structured Extraction
+```python
+from pydantic import BaseModel
+from runeextract import extract_structured
+
+class Invoice(BaseModel):
+    invoice_number: str
+    total: float
+
+result = extract_structured("invoice.pdf", Invoice)
+```
 
 ### Agent Tools
+- MCP Server tools (extract, search, crawl)
+- LangChain `RuneExtractLoader`
+- LlamaIndex `RuneExtractReader`
+- CrewAI `RuneExtractTool`
+- AutoGen `autogen_extract_tool`
 - Function calling / structured output
 - Streaming responses
 - Rate limiter
@@ -95,20 +116,85 @@ OpenAI, Anthropic, Gemini, Ollama, **Azure**, **Bedrock**, **Groq**, **Together*
 - Query expansion (HyDE + multi-query)
 - Batch processing
 
+### Document Processing Pipeline
+```python
+from runeextract import Pipeline
+
+Pipeline([
+    Pipeline.extract(),
+    Pipeline.chunk(strategy="semantic", size=500),
+    Pipeline.embed(provider="openai"),
+    Pipeline.store(collection="docs"),
+]).run(["file1.pdf", "file2.pdf"])
+```
+
 ### Media
 - Audio transcription (Whisper / transformers)
 - Video frame extraction + transcription
 
-### Quality
-- Document quality scoring (0-100)
-- PII redaction
-- Magic-byte format detection
-- Per-file cache with TTL
+### File Sync & Watching
+```python
+from runeextract import DirectoryWatcher, FileSync
+
+watcher = DirectoryWatcher("~/docs", patterns=["*.pdf", "*.docx"])
+events = watcher.poll()  # created, modified, deleted
+
+FileSync("~/source", "~/backup").sync(patterns=["*.md"])
+```
 
 ### Web Crawling
 ```python
-from runeextract import extract_crawl
-docs = extract_crawl("https://example.com", max_pages=20)
+from runeextract import smart_crawl, parse_sitemap, parse_feed
+
+results = smart_crawl("https://example.com", max_pages=20)
+urls = parse_sitemap("https://example.com/sitemap.xml")
+entries = parse_feed("https://example.com/feed.xml")
+```
+
+### Document Diff
+```python
+from runeextract import diff_documents, compare_files
+
+result = diff_documents("old version", "new version")
+print(result.summary())  # "Changes: 3 total (1 added, 1 removed, 1 modified)"
+```
+
+### Layout-Aware Parsing
+```python
+from runeextract import parse_layout, get_reading_order
+
+elements = parse_layout("## Heading\n\nParagraph text", source_type="text")
+ordered = get_reading_order(elements)
+```
+
+### ONNX On-Device Embeddings
+```python
+from runeextract import get_onnx_embedding
+
+model = get_onnx_embedding()
+vectors = model.embed(["text to embed"])
+```
+
+### Cloud Storage
+```python
+from runeextract import get_storage_connector
+
+s3 = get_storage_connector("s3", bucket="my-bucket")
+data = s3.read("documents/report.pdf")
+```
+
+### Quality
+- Document quality scoring (0-100)
+- PII redaction
+- Differential privacy engine
+- Secret scanning (30+ patterns)
+- Magic-byte format detection
+- Per-file cache with TTL
+- Memory profiling
+
+## Benchmark Suite
+```bash
+python -c "from runeextract.benchmarks import run_all_benchmarks; runner = run_all_benchmarks('test.pdf'); print(runner.summary())"
 ```
 
 ## More Examples
@@ -138,7 +224,7 @@ runeextract file.pdf --json --output-dir ./output
 
 ```bash
 pip install -e ".[dev]"
-pytest runeextract/tests/   # 184 tests
+pytest runeextract/tests/   # 569 tests
 ```
 
 ## Architecture
@@ -151,6 +237,19 @@ File/URL → Router (magic-byte detection) → Extractor → Document (unified s
                                                     AI → Summary, Entities, Q&A
                                                           ↓
                                                     Export → JSON, Markdown, Vector DB
+
+NEW MODULES:
+  Structured   → Pydantic schema extraction via LLM
+  Citation     → Auto-cite claims with [N] markers
+  Web          → Smart crawler, sitemap, RSS/Atom
+  Transform    → DAG pipeline (9 step types)
+  Sync         → File watching, sync, batch extraction
+  Agent        → MCP, LangChain, LlamaIndex, CrewAI, AutoGen
+  Layout       → Bounding boxes, columns, reading order
+  Diff         → Version comparison, change tracking
+  Embeddings   → ONNX on-device embedding models
+  Storage      → S3, GCS, Azure Blob connectors
+  Benchmarks   → Performance comparison vs competitors
 ```
 
 ## License

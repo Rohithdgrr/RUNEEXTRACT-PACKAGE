@@ -4,12 +4,11 @@ PDF extractor using PyMuPDF and pdfplumber.
 
 import logging
 import fitz
-import pdfplumber
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from runeextract.core.extractor import BaseExtractor, StreamingExtractor
 from runeextract.models.document import Document, Table, Image
-from runeextract.exceptions import CorruptFileError, ExtractionError
+from runeextract.exceptions import CorruptFileError, ExtractionError, WrongPasswordError
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +35,16 @@ class PDFExtractor(BaseExtractor):
         
         extract_images = self.options.get('images', True)
         extract_tables = self.options.get('tables', True)
+        password = self.options.get('password')
         
         doc = fitz.open(file_path)
         try:
+            if doc.is_encrypted:
+                if not password:
+                    raise WrongPasswordError(file_path)
+                if not doc.authenticate(password):
+                    raise WrongPasswordError(file_path)
+            
             metadata.update(self._extract_metadata(doc))
             
             page_breaks = []
@@ -140,11 +146,18 @@ class PDFExtractor(BaseExtractor):
         return images
     
     def _extract_tables(self, file_path: str) -> List[Table]:
-        """Extract tables from PDF using pdfplumber."""
+        """Extract tables from PDF using pdfplumber (optional dep)."""
         tables = []
         
         try:
-            with pdfplumber.open(file_path) as pdf:
+            import pdfplumber
+        except ImportError:
+            logger.debug("pdfplumber not available; skipping PDF table extraction")
+            return tables
+
+        try:
+            password = self.options.get('password')
+            with pdfplumber.open(file_path, password=password) as pdf:
                 for page_num, page in enumerate(pdf.pages, start=1):
                     page_tables = page.extract_tables()
                     
@@ -189,7 +202,13 @@ class PdfStreamingExtractor(StreamingExtractor, PDFExtractor):
         """Yield a Document per page."""
         self.validate_file(file_path)
         import fitz
+        password = self.options.get('password')
         doc = fitz.open(file_path)
+        if doc.is_encrypted:
+            if not password:
+                raise WrongPasswordError(file_path)
+            if not doc.authenticate(password):
+                raise WrongPasswordError(file_path)
         try:
             total_pages = len(doc)
             cumulative = 0

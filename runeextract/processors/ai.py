@@ -13,10 +13,20 @@ import re
 import time
 from typing import List, Dict, Any, Optional, Union, Tuple
 
-from runeextract.exceptions import DependencyMissingError, ExtractionError
+from runeextract.exceptions import DependencyMissingError, ExtractionError, CircuitBreakerOpenError
 from runeextract.config import get_config
 from runeextract.models.document import _get_token_encoding
 from runeextract.utils.rate_limiter import RateLimiter
+
+logger = logging.getLogger(__name__)
+
+# Default timeout for all AI API calls (seconds)
+_DEFAULT_AI_TIMEOUT = 60
+
+# Circuit breaker defaults
+_CB_FAILURE_THRESHOLD = 5
+_CB_RECOVERY_TIMEOUT = 30
+_CB_HALF_OPEN_MAX = 1
 
 # Cost per 1K tokens (USD) for common models — approximate prices
 MODEL_COST_MAP = {
@@ -31,9 +41,6 @@ MODEL_COST_MAP = {
     "mistral-large-latest": {"input": 0.0020, "output": 0.0060},
     "llama3-70b-8192": {"input": 0.00059, "output": 0.00079},
 }
-
-logger = logging.getLogger(__name__)
-
 
 class AIProcessor:
     """Client for LLM-powered document processing.
@@ -89,7 +96,11 @@ class AIProcessor:
 
         no_key_providers = {"ollama", "bedrock"}
         if not use_local and not self.api_key and self.provider not in no_key_providers:
-            key_env = self.provider.upper() + ("_API_KEY" if self.provider not in ("azure", "bedrock") else ("_API_KEY" if self.provider == "azure" else "_ACCESS_KEY_ID"))
+            _env_map = {"azure": "AZURE_OPENAI_API_KEY", "openai": "OPENAI_API_KEY",
+                        "anthropic": "ANTHROPIC_API_KEY", "gemini": "GEMINI_API_KEY",
+                        "groq": "GROQ_API_KEY", "together": "TOGETHER_API_KEY",
+                        "deepseek": "DEEPSEEK_API_KEY", "mistral": "MISTRAL_API_KEY"}
+            key_env = _env_map.get(self.provider, f"{self.provider.upper()}_API_KEY")
             raise ExtractionError(
                 f"{self.provider.title()}: API key not set. "
                 f"Set the {key_env} env var or pass api_key.",
@@ -102,6 +113,65 @@ class AIProcessor:
         self.max_tokens = int(cfg.extra.get("ai_max_tokens", 2048))
         self._client = None
         self._local_pipeline = None
+        self._cb_failures = 0
+        self._cb_last_failure = 0.0
+        self._cb_state = "closed"
+        self._request_timeout = float(cfg.extra.get("ai_request_timeout", _DEFAULT_AI_TIMEOUT))
+
+    def _check_circuit_breaker(self):
+        if self._cb_state == "open":
+            if time.time() - self._cb_last_failure >= _CB_RECOVERY_TIMEOUT:
+                self._cb_state = "half-open"
+                self._cb_failures = 0
+            else:
+                raise CircuitBreakerOpenError(self.provider)
+
+    def _record_failure(self):
+        self._cb_failures += 1
+        self._cb_last_failure = time.time()
+        if self._cb_failures >= _CB_FAILURE_THRESHOLD:
+            self._cb_state = "open"
+            self._cb_failures = 0
+
+    def _record_success(self):
+        if self._cb_state == "half-open":
+            self._cb_state = "closed"
+            self._cb_failures = 0
+
+    @staticmethod
+    def _sanitize_error(exc: Exception) -> str:
+        """Strip potential API keys and sensitive data from error messages."""
+        msg = str(exc)
+        # Redact common API key patterns from error messages
+        msg = re.sub(r'(sk-[a-zA-Z0-9]{20,})', '[API_KEY_REDACTED]', msg)
+        msg = re.sub(r'(pk-[a-zA-Z0-9]{20,})', '[API_KEY_REDACTED]', msg)
+        msg = re.sub(r'(Bearer\s+)[a-zA-Z0-9\-_.]+', r'\1[TOKEN_REDACTED]', msg)
+        msg = re.sub(r'(Authorization:\s*)[^\s]+', r'\1[REDACTED]', msg)
+        msg = re.sub(r'(api[_-]?key[=:]\s*)[^\s&]+', r'\1[REDACTED]', msg, flags=re.IGNORECASE)
+        return msg
+
+    def _call_with_retry(self, call_fn, extract_fn, provider_label="AI"):
+        self._check_circuit_breaker()
+        for attempt in range(3):
+            try:
+                resp = call_fn()
+                self._track_cost(*extract_fn(resp))
+                self._record_success()
+                return resp
+            except CircuitBreakerOpenError:
+                raise
+            except Exception as exc:
+                self._record_failure()
+                if attempt < 2:
+                    delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
+                    time.sleep(delay)
+                    continue
+                safe_msg = self._sanitize_error(exc)
+                logger.error(f"{provider_label} call failed after retries: {safe_msg[:200]}")
+                raise ExtractionError(
+                    f"{provider_label} processing failed after retries: {safe_msg[:500]}",
+                    error_code="E031"
+                )
 
     @property
     def client(self):
@@ -229,24 +299,16 @@ class AIProcessor:
             ],
             "temperature": self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
+            "timeout": self._request_timeout,
         }
         if response_format:
             kwargs["response_format"] = response_format
-        for attempt in range(3):
-            try:
-                resp = self.client.chat.completions.create(**kwargs)
-                self._track_cost(
-                    input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
-                    output_tokens=resp.usage.completion_tokens if resp.usage else 0,
-                )
-                return resp.choices[0].message.content.strip()
-            except Exception as exc:
-                if attempt < 2:
-                    delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
-                    time.sleep(delay)
-                    continue
-                logger.error(f"OpenAI call failed: {exc}")
-                raise ExtractionError(f"AI processing failed: {exc}", error_code="E031")
+        resp = self._call_with_retry(
+            lambda: self.client.chat.completions.create(**kwargs),
+            lambda r: (r.usage.prompt_tokens if r.usage else 0, r.usage.completion_tokens if r.usage else 0),
+            provider_label="OpenAI",
+        )
+        return resp.choices[0].message.content.strip()
 
     def _call_anthropic(
         self,
@@ -254,28 +316,22 @@ class AIProcessor:
         user: str,
         max_tokens: Optional[int] = None,
     ) -> str:
-        for attempt in range(3):
-            try:
-                resp = self.client.messages.create(
-                    model=self.model,
-                    system=system,
-                    messages=[{"role": "user", "content": user}],
-                    temperature=self.temperature,
-                    max_tokens=max_tokens or self.max_tokens,
-                )
-                usage = getattr(resp, "usage", None)
-                self._track_cost(
-                    input_tokens=usage.input_tokens if usage else 0,
-                    output_tokens=usage.output_tokens if usage else 0,
-                )
-                return resp.content[0].text.strip()
-            except Exception as exc:
-                if attempt < 2:
-                    delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
-                    time.sleep(delay)
-                    continue
-                logger.error(f"Anthropic call failed: {exc}")
-                raise ExtractionError(f"Anthropic processing failed: {exc}", error_code="E031")
+        resp = self._call_with_retry(
+            lambda: self.client.messages.create(
+                model=self.model,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+                temperature=self.temperature,
+                max_tokens=max_tokens or self.max_tokens,
+                timeout=self._request_timeout,
+            ),
+            lambda r: (
+                getattr(r, "usage", None).input_tokens if getattr(r, "usage", None) else 0,
+                getattr(r, "usage", None).output_tokens if getattr(r, "usage", None) else 0,
+            ),
+            provider_label="Anthropic",
+        )
+        return resp.content[0].text.strip()
 
     def _call_gemini(
         self,
@@ -283,25 +339,20 @@ class AIProcessor:
         user: str,
         max_tokens: Optional[int] = None,
     ) -> str:
-        for attempt in range(3):
-            try:
-                generation_config = {
-                    "temperature": self.temperature,
-                    "max_output_tokens": max_tokens or self.max_tokens,
-                }
-                resp = self.client.generate_content(
-                    f"{system}\n\n{user}",
-                    generation_config=generation_config,
-                )
-                self._track_cost(input_tokens=0, output_tokens=0)
-                return resp.text.strip()
-            except Exception as exc:
-                if attempt < 2:
-                    delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
-                    time.sleep(delay)
-                    continue
-                logger.error(f"Gemini call failed: {exc}")
-                raise ExtractionError(f"Gemini processing failed: {exc}", error_code="E031")
+        generation_config = {
+            "temperature": self.temperature,
+            "max_output_tokens": max_tokens or self.max_tokens,
+        }
+        resp = self._call_with_retry(
+            lambda: self.client.generate_content(
+                f"{system}\n\n{user}",
+                generation_config=generation_config,
+                request_options={"timeout": self._request_timeout},
+            ),
+            lambda r: (0, 0),
+            provider_label="Gemini",
+        )
+        return resp.text.strip()
 
     def _call_ollama(
         self,
@@ -318,22 +369,14 @@ class AIProcessor:
             ],
             "temperature": self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
+            "timeout": self._request_timeout,
         }
-        for attempt in range(3):
-            try:
-                resp = self.client.chat.completions.create(**kwargs)
-                self._track_cost(
-                    input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
-                    output_tokens=resp.usage.completion_tokens if resp.usage else 0,
-                )
-                return resp.choices[0].message.content.strip()
-            except Exception as exc:
-                if attempt < 2:
-                    delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
-                    time.sleep(delay)
-                    continue
-                logger.error(f"Ollama call failed: {exc}")
-                raise ExtractionError(f"Ollama processing failed: {exc}", error_code="E031")
+        resp = self._call_with_retry(
+            lambda: self.client.chat.completions.create(**kwargs),
+            lambda r: (r.usage.prompt_tokens if r.usage else 0, r.usage.completion_tokens if r.usage else 0),
+            provider_label="Ollama",
+        )
+        return resp.choices[0].message.content.strip()
 
     def _call_azure(
         self,
@@ -350,24 +393,16 @@ class AIProcessor:
             ],
             "temperature": self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
+            "timeout": self._request_timeout,
         }
         if response_format:
             kwargs["response_format"] = response_format
-        for attempt in range(3):
-            try:
-                resp = self.client.chat.completions.create(**kwargs)
-                self._track_cost(
-                    input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
-                    output_tokens=resp.usage.completion_tokens if resp.usage else 0,
-                )
-                return resp.choices[0].message.content.strip()
-            except Exception as exc:
-                if attempt < 2:
-                    delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
-                    time.sleep(delay)
-                    continue
-                logger.error(f"Azure call failed: {exc}")
-                raise ExtractionError(f"Azure AI processing failed: {exc}", error_code="E031")
+        resp = self._call_with_retry(
+            lambda: self.client.chat.completions.create(**kwargs),
+            lambda r: (r.usage.prompt_tokens if r.usage else 0, r.usage.completion_tokens if r.usage else 0),
+            provider_label="Azure",
+        )
+        return resp.choices[0].message.content.strip()
 
     def _call_bedrock(
         self,
@@ -382,24 +417,18 @@ class AIProcessor:
             "messages": [{"role": "user", "content": user}],
             "temperature": self.temperature,
         })
-        for attempt in range(3):
-            try:
-                resp = self.client.invoke_model(
-                    modelId=self.model,
-                    contentType="application/json",
-                    accept="application/json",
-                    body=body,
-                )
-                data = json.loads(resp["body"].read())
-                self._track_cost(input_tokens=0, output_tokens=0)
-                return data["content"][0]["text"].strip()
-            except Exception as exc:
-                if attempt < 2:
-                    delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
-                    time.sleep(delay)
-                    continue
-                logger.error(f"Bedrock call failed: {exc}")
-                raise ExtractionError(f"Bedrock AI processing failed: {exc}", error_code="E031")
+        resp = self._call_with_retry(
+            lambda: self.client.invoke_model(
+                modelId=self.model,
+                contentType="application/json",
+                accept="application/json",
+                body=body,
+            ),
+            lambda r: (0, 0),
+            provider_label="Bedrock",
+        )
+        data = json.loads(resp["body"].read())
+        return data["content"][0]["text"].strip()
 
     def _call_openai_compat(
         self,
@@ -415,22 +444,14 @@ class AIProcessor:
             ],
             "temperature": self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
+            "timeout": self._request_timeout,
         }
-        for attempt in range(3):
-            try:
-                resp = self.client.chat.completions.create(**kwargs)
-                self._track_cost(
-                    input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
-                    output_tokens=resp.usage.completion_tokens if resp.usage else 0,
-                )
-                return resp.choices[0].message.content.strip()
-            except Exception as exc:
-                if attempt < 2:
-                    delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
-                    time.sleep(delay)
-                    continue
-                logger.error(f"{self.provider.title()} call failed: {exc}")
-                raise ExtractionError(f"{self.provider.title()} AI processing failed: {exc}", error_code="E031")
+        resp = self._call_with_retry(
+            lambda: self.client.chat.completions.create(**kwargs),
+            lambda r: (r.usage.prompt_tokens if r.usage else 0, r.usage.completion_tokens if r.usage else 0),
+            provider_label=self.provider.title(),
+        )
+        return resp.choices[0].message.content.strip()
 
     def _call_local(self, system: str, user: str) -> str:
         try:
@@ -659,22 +680,81 @@ class AIProcessor:
             max_tokens=max_words * 4,
         )
 
-    def redact_pii(self, text: str) -> str:
-        """Redact common PII patterns (emails, phones, SSNs, credit cards) from text.
+    def redact_pii(
+        self,
+        text: str,
+        use_dp: bool = False,
+        epsilon: float = 1.0,
+    ) -> str:
+        """Redact common PII patterns from text using regex-based detection.
 
-        Uses regex-based detection. Returns text with PII replaced by placeholders.
+        Covers: emails, phones, SSNs, credit cards, IPs (v4/v6), dates of birth,
+        passport numbers, API keys, and private URLs.
+
+        When ``use_dp=True``, applies epsilon-differential privacy via the
+        Laplace mechanism to numeric PII (phone digits, ages, years) instead of
+        full redaction, allowing approximate statistical analysis while preserving
+        privacy.
+
+        Args:
+            text: Input text to redact
+            use_dp: If True, apply differential privacy to numeric PII
+            epsilon: Privacy budget for DP (lower = more private, default 1.0)
+
+        Returns:
+            Text with PII replaced by placeholders (or perturbed if DP enabled).
         """
-        patterns = {
-            r'\b[\w\.-]+@[\w\.-]+\.\w+\b': '[EMAIL]',
-            r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b': '[PHONE]',
-            r'\b\d{3}-\d{2}-\d{4}\b': '[SSN]',
-            r'\b(?:\d{4}[-\s]?){3}\d{4}\b': '[CREDIT_CARD]',
-            r'\b(?:\d[-\s]*){16}\b': '[CREDIT_CARD]',
-        }
+        patterns = [
+            (r'\b[\w\.-]+@[\w\.-]+\.\w+\b', '[EMAIL]'),
+            (r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', '[PHONE]'),
+            (r'\b\d{3}-\d{2}-\d{4}\b', '[SSN]'),
+            (r'\b(?:\d{4}[-\s]?){3}\d{4}\b', '[CREDIT_CARD]'),
+            (r'\b(?:\d[-\s]*){16}\b', '[CREDIT_CARD]'),
+            (r'\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b', '[IP_ADDRESS]'),
+            (r'\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b', '[IPV6_ADDRESS]'),
+            (r'\b(?:[0-9a-fA-F]{1,4}:){1,6}::(?:[0-9a-fA-F]{1,4}:){0,5}[0-9a-fA-F]{1,4}?\b', '[IPV6_ADDRESS]'),
+            (r'\b::(?:[0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}?\b', '[IPV6_ADDRESS]'),
+            (r'\b\d{1,2}[/-]\d{1,2}[/-]\d{4}\b', '[DATE]'),
+            (r'\b[A-Z]{2}\d{6,9}\b', '[PASSPORT]'),
+            (r'\b(?:sk-[a-zA-Z0-9]{20,}|pk-[a-zA-Z0-9]{20,})\b', '[API_KEY]'),
+            (r'https?://(?:[^\s/$.?#]+\.)*(?:bit\.ly|tinyurl\.com|short\.link|t\.co)/\S+', '[SHORT_URL]'),
+        ]
         result = text
-        for pattern, replacement in patterns.items():
+        for pattern, replacement in patterns:
             result = re.sub(pattern, replacement, result)
+
+        if use_dp:
+            from runeextract.utils.privacy import DifferentialPrivacyEngine
+            dp = DifferentialPrivacyEngine(epsilon=epsilon)
+            # Perturb remaining numeric values in [PHONE] contexts
+            result = re.sub(
+                r'\[PHONE\]',
+                lambda m: f"[PHONE_DP:{dp.perturb_phone('0000000000')[-4:]}]",
+                result,
+            )
+
         return result
+
+    def scan_secrets(self, text: str, auto_redact: bool = False) -> list:
+        """Scan text for API keys, tokens, passwords, and other secrets.
+
+        Detects AWS keys, GitHub tokens, Slack tokens, JWT tokens,
+        private keys, database connection strings, and more.
+
+        Args:
+            text: Text content to scan
+            auto_redact: If True, redact detected secrets in-place (returns
+                         redacted text). If False (default), only returns findings.
+
+        Returns:
+            If ``auto_redact=False``: list of SecretFinding dataclass instances
+            If ``auto_redact=True``: (redacted_text, findings) tuple
+        """
+        from runeextract.utils.secrets import scan_secrets, redact_secrets
+        findings = scan_secrets(text)
+        if not auto_redact:
+            return findings
+        return redact_secrets(text, findings), findings
 
     def _estimate_token_count(self, text: str) -> int:
         """Estimate token count for a text string using tiktoken if available."""
@@ -802,6 +882,7 @@ class AIProcessor:
 
         if self.rate_limiter:
             self.rate_limiter()
+        self._check_circuit_breaker()
 
         kwargs = {
             "model": self.model,
@@ -813,6 +894,7 @@ class AIProcessor:
             "tool_choice": tool_choice,
             "temperature": self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
+            "timeout": self._request_timeout,
         }
         for attempt in range(3):
             try:
@@ -822,6 +904,7 @@ class AIProcessor:
                     input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
                     output_tokens=resp.usage.completion_tokens if resp.usage else 0,
                 )
+                self._record_success()
                 if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
                     calls = []
                     for tc in choice.message.tool_calls:
@@ -833,11 +916,13 @@ class AIProcessor:
                     return {"tool_calls": calls}
                 return {"content": choice.message.content.strip()}
             except Exception as exc:
+                self._record_failure()
                 if attempt < 2:
                     delay = 1.0 * (2.0 ** attempt) * random.uniform(0.5, 1.5)
                     time.sleep(delay)
                     continue
-                raise ExtractionError(f"Function call failed: {exc}", error_code="E031")
+                safe_msg = self._sanitize_error(exc)
+                raise ExtractionError(f"Function call failed: {safe_msg[:500]}", error_code="E031")
 
     # --- Streaming AI responses ---
 
@@ -866,6 +951,7 @@ class AIProcessor:
 
         if self.rate_limiter:
             self.rate_limiter()
+        self._check_circuit_breaker()
 
         kwargs = {
             "model": self.model,
@@ -876,6 +962,7 @@ class AIProcessor:
             "temperature": self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
             "stream": True,
+            "timeout": self._request_timeout,
         }
         collected = []
         try:
@@ -891,11 +978,14 @@ class AIProcessor:
                     input_tokens=chunk.usage.prompt_tokens or 0,
                     output_tokens=chunk.usage.completion_tokens or 0,
                 )
+            self._record_success()
         except Exception as exc:
             if collected:
                 yield "".join(collected)
-            logger.error(f"Streaming call failed: {exc}")
-            raise ExtractionError(f"AI streaming failed: {exc}", error_code="E031")
+            self._record_failure()
+            safe_msg = self._sanitize_error(exc)
+            logger.error(f"Streaming call failed: {safe_msg[:200]}")
+            raise ExtractionError(f"AI streaming failed: {safe_msg[:500]}", error_code="E031")
 
     async def call_stream_async(
         self,
@@ -966,6 +1056,7 @@ class AIProcessor:
         prompts: List[Dict[str, str]],
         max_concurrency: int = 4,
         max_tokens: Optional[int] = None,
+        per_task_timeout: Optional[float] = None,
     ) -> List[str]:
         """Process multiple prompts concurrently with concurrency control.
 
@@ -977,12 +1068,14 @@ class AIProcessor:
             prompts: List of dicts, each with "system" and "user" keys
             max_concurrency: Max concurrent API calls (default 4)
             max_tokens: Max tokens per response (uses instance default if None)
+            per_task_timeout: Timeout per individual task (defaults to request timeout)
 
         Returns:
             List of response strings, same order as prompts
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
+        per_task_timeout = per_task_timeout or self._request_timeout
         results: List[Optional[str]] = [None] * len(prompts)
 
         def _process(idx: int, p: Dict[str, str]) -> int:
@@ -997,7 +1090,11 @@ class AIProcessor:
         with ThreadPoolExecutor(max_workers=max_concurrency) as pool:
             futures = {pool.submit(_process, i, p): i for i, p in enumerate(prompts)}
             for future in as_completed(futures):
-                pass
+                try:
+                    future.result(timeout=per_task_timeout)
+                except TimeoutError:
+                    logger.warning(f"Batch task timed out after {per_task_timeout}s")
+                    future.cancel()
 
         return [r for r in results if r is not None]
 

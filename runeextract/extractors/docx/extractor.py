@@ -9,6 +9,7 @@ from typing import List, Dict, Any
 from io import BytesIO
 from runeextract.core.extractor import BaseExtractor
 from runeextract.models.document import Document as RuneDocument, Table, Image
+from runeextract.exceptions import ExtractionError, WrongPasswordError
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,11 @@ class DocxExtractor(BaseExtractor):
 
     def extract(self, file_path: str) -> RuneDocument:
         self.validate_file(file_path)
-        doc = Document(file_path)
+        password = self.options.get('password')
+        if password:
+            doc = self._open_protected(file_path, password)
+        else:
+            doc = Document(file_path)
         text = ""
         tables: List[Table] = []
         images: List[Image] = []
@@ -36,6 +41,26 @@ class DocxExtractor(BaseExtractor):
         text = self.clean_text(text)
         return RuneDocument(text=text, tables=tables, images=images, metadata=metadata,
                             source_type="docx", source_path=file_path)
+
+    @staticmethod
+    def _open_protected(file_path: str, password: str) -> Document:
+        try:
+            import msoffcrypto
+        except ImportError:
+            raise ExtractionError(
+                "Password-protected DOCX requires msoffcrypto-tool. Install: pip install msoffcrypto-tool",
+                file_path=file_path, error_code="E004"
+            )
+        with open(file_path, "rb") as f:
+            decrypted = BytesIO()
+            office_file = msoffcrypto.OfficeFile(f)
+            try:
+                office_file.load_key(password=password)
+            except Exception:
+                raise WrongPasswordError(file_path)
+            office_file.decrypt(decrypted)
+        decrypted.seek(0)
+        return Document(decrypted)
 
     @staticmethod
     def _ocr_text_from_images(images: List[Image]) -> str:

@@ -7,7 +7,7 @@ Supports environment variables, JSON config files, and pyproject.toml.
 import os
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
@@ -62,11 +62,15 @@ class RuneExtractConfig:
     cache_ttl: int = 3600
     log_level: str = "WARNING"
     extra: Dict[str, Any] = field(default_factory=dict)
+    _skip_init: bool = field(default=False, repr=False, init=False)
 
     def __post_init__(self):
-        self.apply_env()
-        self.apply_config_file()
+        if self._skip_init:
+            return
+        # Apply lowest priority first, highest priority last (last write wins)
         self.apply_pyproject()
+        self.apply_config_file()
+        self.apply_env()
 
     def apply_env(self):
         """Override settings from environment variables."""
@@ -142,6 +146,16 @@ class RuneExtractConfig:
                 except Exception as exc:
                     logger.warning(f"Failed to load pyproject config from {path}: {exc}")
 
+    _BOOL_FIELDS = {"ocr", "tables", "images", "metadata"}
+    _INT_FIELDS = {"chunk_size", "chunk_overlap", "max_file_size", "cache_ttl"}
+
+    def _coerce(self, field_name: str, value: Any) -> Any:
+        if field_name in self._BOOL_FIELDS:
+            return _parse_bool(value)
+        if field_name in self._INT_FIELDS:
+            return _parse_int(value)
+        return value
+
     def _merge_dict(self, data: dict):
         """Merge a dict into this config, ignoring unknown keys."""
         mapping = {k.lower(): v for k, v in data.items()}
@@ -152,7 +166,7 @@ class RuneExtractConfig:
             "cache_ttl", "log_level"
         ):
             if field_name in mapping:
-                setattr(self, field_name, mapping[field_name])
+                setattr(self, field_name, self._coerce(field_name, mapping[field_name]))
         # Collect extra keys
         known = {
             "ocr", "tables", "images", "metadata",
@@ -165,21 +179,19 @@ class RuneExtractConfig:
                 self.extra[k] = v
 
     def merge_options(self, **kwargs) -> "RuneExtractConfig":
-        """Return a new config with per-call kwargs overlaid."""
-        clone = RuneExtractConfig(
-            ocr=kwargs.get("ocr", self.ocr),
-            tables=kwargs.get("tables", self.tables),
-            images=kwargs.get("images", self.images),
-            metadata=kwargs.get("metadata", self.metadata),
-            chunking_strategy=kwargs.get("chunking_strategy", self.chunking_strategy),
-            chunk_size=kwargs.get("chunk_size", self.chunk_size),
-            chunk_overlap=kwargs.get("chunk_overlap", self.chunk_overlap),
-            max_file_size=kwargs.get("max_file_size", self.max_file_size),
-            allowed_extensions=kwargs.get("allowed_extensions", self.allowed_extensions),
-            cache_dir=kwargs.get("cache_dir", self.cache_dir),
-            cache_ttl=kwargs.get("cache_ttl", self.cache_ttl),
-            log_level=kwargs.get("log_level", self.log_level),
-        )
+        """Return a new config with per-call kwargs overlaid (avoids __post_init__ re-apply)."""
+        # Bypass __init__ to prevent __post_init__ from re-applying env/config/pyproject
+        clone = object.__new__(RuneExtractConfig)
+        # Copy all fields from self
+        for f in fields(self):
+            setattr(clone, f.name, getattr(self, f.name))
+        # Override with kwargs
+        for k, v in kwargs.items():
+            if hasattr(clone, k):
+                setattr(clone, k, v)
+            else:
+                clone.extra[k] = v
+        clone._skip_init = True
         return clone
 
     def to_dict(self) -> dict:

@@ -147,6 +147,9 @@ cython_debug/
 .DS_Store
 Thumbs.db
 
+# Test artifacts
+*.pkl
+
 # Project specific
 *.pdf
 *.docx

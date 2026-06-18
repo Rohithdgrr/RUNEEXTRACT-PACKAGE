@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "runeextract"
-version = "0.4.0"
-description = "One extraction API for every document type"
+version = "0.6.0"
+description = "One extraction API for every document type — lightweight, zero heavy default deps"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT"
@@ -20,10 +20,11 @@ keywords = [
     "markdown",
     "ocr",
     "rag",
-    "text-extraction"
+    "text-extraction",
+    "lightweight",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
@@ -31,84 +32,71 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing",
 ]
 
+# Lightweight core: only essential extraction deps.
+# Heavy deps (pandas, lxml, pdfplumber, markdown-it-py) are optional extras.
 dependencies = [
     "pymupdf>=1.23.0,<2.0.0",
-    "pdfplumber>=0.10.0,<1.0.0",
     "python-docx>=1.1.0,<2.0.0",
     "python-pptx>=0.6.21,<1.0.0",
     "openpyxl>=3.1.0,<4.0.0",
-    "pandas>=2.0.0,<3.0.0",
     "beautifulsoup4>=4.12.0,<5.0.0",
-    "lxml>=4.9.0,<6.0.0",
-    "markdown-it-py>=3.0.0,<4.0.0",
     "tomli>=1.1.0,<3.0.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
+# OCR
 ocr = [
     "easyocr>=1.7.0,<2.0.0",
     "Pillow>=10.0.0,<12.0.0",
 ]
-ai = [
-    "openai>=1.0.0,<2.0.0",
+# AI providers
+ai = ["openai>=1.0.0,<2.0.0"]
+ai-anthropic = ["anthropic>=0.30.0,<1.0.0"]
+ai-gemini = ["google-generativeai>=0.6.0,<1.0.0"]
+# Media
+youtube = ["youtube-transcript-api>=0.6.0,<1.0.0", "yt-dlp>=2023.0.0,<2025.0.0"]
+notion = ["requests>=2.28.0,<3.0.0"]
+epub = ["EbookLib>=0.18,<1.0.0", "beautifulsoup4>=4.12.0,<5.0.0", "lxml>=4.9.0,<6.0.0"]
+audio = ["openai-whisper>=20231117,<20250000"]
+video = ["opencv-python-headless>=4.8.0,<5.0.0"]
+# Async
+async = ["aiohttp>=3.9.0,<4.0.0"]
+# RAG
+rag = ["tiktoken>=0.5.0,<1.0.0", "rank-bm25>=0.2.0,<1.0.0", "numpy>=1.24.0,<3.0.0"]
+embeddings = ["sentence-transformers>=2.2.0,<4.0.0"]
+vector-stores = ["chromadb>=0.4.0,<1.0.0", "faiss-cpu>=1.7.0,<2.0.0"]
+# Structured extraction
+structured = ["pydantic>=2.0.0,<3.0.0"]
+# Protected files
+protected = ["msoffcrypto-tool>=5.0.0,<6.0.0"]
+# WebSocket server
+server = ["websockets>=12.0.0,<14.0.0"]
+# Heavy / optional format support (moved out of core)
+dataframe = ["pandas>=2.0.0,<3.0.0"]
+xml = ["lxml>=4.9.0,<6.0.0"]
+pdf-alt = ["pdfplumber>=0.10.0,<1.0.0"]
+markdown = ["markdown-it-py>=3.0.0,<4.0.0"]
+# Meta extras
+all = [
+    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,rag,embeddings,vector-stores,audio,video,structured,protected,server,dataframe,xml,pdf-alt,markdown]",
 ]
-ai-anthropic = [
-    "anthropic>=0.30.0,<1.0.0",
-]
-ai-gemini = [
-    "google-generativeai>=0.6.0,<1.0.0",
-]
+auto-rag = ["runeextract[rag,embeddings,vector-stores]"]
 dev = [
     "pytest>=7.4.0,<9.0.0",
     "pytest-cov>=4.1.0,<7.0.0",
-    "black>=23.0.0,<25.0.0",
-    "flake8>=6.0.0,<8.0.0",
-    "mypy>=1.5.0,<2.0.0",
-]
-youtube = [
-    "youtube-transcript-api>=0.6.0,<1.0.0",
-    "yt-dlp>=2023.0.0,<2025.0.0",
-]
-notion = [
-    "requests>=2.28.0,<3.0.0",
-]
-epub = [
-    "EbookLib>=0.18,<1.0.0",
-    "beautifulsoup4>=4.12.0,<5.0.0",
-    "lxml>=4.9.0,<6.0.0",
-]
-async = [
-    "aiohttp>=3.9.0,<4.0.0",
-]
-rag = [
-    "tiktoken>=0.5.0,<1.0.0",
-]
-embeddings = [
-    "sentence-transformers>=2.2.0,<4.0.0",
-]
-vector-stores = [
-    "chromadb>=0.4.0,<1.0.0",
-    "faiss-cpu>=1.7.0,<2.0.0",
-]
-audio = [
-    "openai-whisper>=20231117,<20250000",
-]
-video = [
-    "opencv-python-headless>=4.8.0,<5.0.0",
-]
-all = [
-    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,dev,rag,embeddings,vector-stores,audio,video]",
+    "ruff>=0.1.0,<1.0.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/runeextract/runeextract"
-Documentation = "https://github.com/runeextract/runeextract#readme"
-Repository = "https://github.com/runeextract/runeextract"
-Issues = "https://github.com/runeextract/runeextract/issues"
+Homepage = "https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE"
+Documentation = "https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE#readme"
+Repository = "https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE"
+Issues = "https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE/issues"
 
 [project.scripts]
 runeextract = "runeextract.cli.main:main"
@@ -133,9 +121,16 @@ video = "runeextract.extractors.video.extractor:VideoExtractor"
 where = ["."]
 include = ["runeextract*"]
 
-[tool.black]
+[tool.ruff]
 line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E203", "W503"]
+
+[tool.ruff.format]
+quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["runeextract/tests"]
@@ -143,20 +138,12 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v"
-
-[tool.flake8]
-max-line-length = 100
-extend-ignore = "E203, W503"
-exclude = ".git,__pycache__,build,dist,.egg-info,.venv,env"
-
-[tool.mypy]
-python_version = "3.8"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
 
 [tool.cibuildwheel]
-build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*"]
+build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*", "cp313-*"]
 skip = ["*-win32", "*-manylinux_i686", "*-musllinux_*"]
 test-command = "python -c 'from runeextract import extract; print(\"ok\")'"
 
