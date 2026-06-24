@@ -1,6 +1,5 @@
 """Batch extraction — scan a directory and extract files, or watch and extract."""
 
-import os
 from typing import Callable, List, Optional
 
 from runeextract.sync.watcher import DirectoryWatcher, FileEvent

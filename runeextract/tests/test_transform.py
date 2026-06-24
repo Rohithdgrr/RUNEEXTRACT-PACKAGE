@@ -4,11 +4,20 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from runeextract.transform import (
-    Pipeline, PipelineStep, PipelineContext, PipelineResult, run_pipeline,
+    Pipeline, DagPipeline, PipelineStep, PipelineContext, PipelineResult, run_pipeline,
     ExtractStep, ExtractManyStep, ChunkStep, FilterStep, MapStep,
     AIStep, EmbedStep, StoreStep, LogStep,
+    ConditionalStep, ParallelStep, WaitStep,
 )
 from runeextract.models.document import Document, ChunkingStrategy
+from runeextract.transform.steps import _get_ai, _reset_ai
+
+
+@pytest.fixture(autouse=True)
+def _reset_ai_singleton():
+    _reset_ai()
+    yield
+    _reset_ai()
 
 
 # ---------- Helper ----------
@@ -379,3 +388,301 @@ class TestLogStep:
         ctx = PipelineContext(documents=[_make_doc("a"), _make_doc("b")])
         result = step.run(ctx)
         assert "Got 2 docs" in result
+
+
+# ==================== PipelineStep retry & skip ====================
+
+
+class TestPipelineStepRetry:
+    def test_retry_eventually_succeeds(self):
+        """Step fails twice then succeeds on third attempt."""
+        attempt_count = [0]
+
+        class FlakyStep(PipelineStep):
+            def run(self, ctx):
+                attempt_count[0] += 1
+                if attempt_count[0] < 3:
+                    raise ValueError("not yet")
+                return "success"
+
+        step = FlakyStep("flaky", retry_count=3, retry_delay=0.01)
+        ctx = PipelineContext()
+        result = step._execute(ctx)
+        assert result == "success"
+        assert attempt_count[0] == 3
+
+    def test_retry_exhausted_raises(self):
+        attempt_count = [0]
+
+        class AlwaysFailStep(PipelineStep):
+            def run(self, ctx):
+                attempt_count[0] += 1
+                raise ValueError("always fail")
+
+        step = AlwaysFailStep("fail", retry_count=2, retry_delay=0.01)
+        ctx = PipelineContext()
+        with pytest.raises(ValueError, match="always fail"):
+            step._execute(ctx)
+        assert attempt_count[0] == 3  # initial + 2 retries
+
+    def test_skip_if_skips_step(self):
+        class SimpleStep(PipelineStep):
+            def run(self, ctx):
+                ctx.documents.append(_make_doc("ran"))
+                return "ran"
+
+        step = SimpleStep("skipme", skip_if=lambda ctx: True)
+        ctx = PipelineContext()
+        result = step._execute(ctx)
+        assert result is None
+        assert len(ctx.documents) == 0  # step didn't run
+
+    def test_skip_if_false_runs_normally(self):
+        class SimpleStep(PipelineStep):
+            def run(self, ctx):
+                ctx.documents.append(_make_doc("ran"))
+                return "ran"
+
+        step = SimpleStep("dontskip", skip_if=lambda ctx: False)
+        ctx = PipelineContext()
+        result = step._execute(ctx)
+        assert result == "ran"
+        assert len(ctx.documents) == 1
+
+
+# ==================== DagPipeline ====================
+
+
+class TestDagPipeline:
+    def test_single_step(self):
+        class SimpleStep(PipelineStep):
+            def run(self, ctx):
+                ctx.documents.append(_make_doc("hello"))
+                return "ok"
+
+        dag = DagPipeline()
+        dag.add_step(SimpleStep("step1"))
+        result = dag.run()
+        assert result.steps_run == 1
+        assert len(result.documents) == 1
+
+    def test_dependency_order(self):
+        class AppendStep(PipelineStep):
+            def __init__(self, name, text):
+                super().__init__(name)
+                self.text = text
+            def run(self, ctx):
+                ctx.documents.append(_make_doc(self.text))
+                return self.text
+
+        dag = DagPipeline()
+        dag.add_step(AppendStep("first", "alpha"))
+        dag.add_step(AppendStep("second", "beta"), depends_on="first")
+        dag.add_step(AppendStep("third", "gamma"), depends_on="second")
+        result = dag.run()
+        assert [d.text for d in result.documents] == ["alpha", "beta", "gamma"]
+
+    def test_multiple_dependencies(self):
+        class AppendStep(PipelineStep):
+            def __init__(self, name, text):
+                super().__init__(name)
+                self.text = text
+            def run(self, ctx):
+                ctx.documents.append(_make_doc(self.text))
+                return self.text
+
+        dag = DagPipeline()
+        dag.add_step(AppendStep("a", "first"))
+        dag.add_step(AppendStep("b", "second"))
+        dag.add_step(AppendStep("c", "third"), depends_on=["a", "b"])
+        result = dag.run()
+        assert len(result.documents) == 3
+        assert result.documents[2].text == "third"
+
+    def test_cycle_detection(self):
+        class SimpleStep(PipelineStep):
+            def run(self, ctx):
+                return None
+
+        dag = DagPipeline()
+        dag.add_step(SimpleStep("a"), depends_on="b")
+        dag.add_step(SimpleStep("b"), depends_on="a")
+        with pytest.raises(ValueError, match="Cycle detected"):
+            dag.run()
+
+    def test_stop_on_error(self):
+        class FailStep(PipelineStep):
+            def run(self, ctx):
+                raise ValueError("boom")
+
+        dag = DagPipeline()
+        dag.add_step(FailStep("fail"))
+        dag.add_step(LogStep("log", message="should not run"))
+        result = dag.run(stop_on_error=True)
+        assert result.steps_run == 0
+        assert "fail" in result.errors
+        assert "log" not in result.errors
+
+    def test_continue_on_error(self):
+        class FailStep(PipelineStep):
+            def run(self, ctx):
+                raise ValueError("boom")
+
+        class OkStep(PipelineStep):
+            def run(self, ctx):
+                ctx.documents.append(_make_doc("ok"))
+                return "ok"
+
+        dag = DagPipeline()
+        dag.add_step(FailStep("fail"))
+        dag.add_step(OkStep("ok"))
+        result = dag.run(stop_on_error=False)
+        assert result.steps_run == 1
+        assert "fail" in result.errors
+        assert len(result.documents) == 1
+
+    def test_parallel_execution(self):
+        class SlowStep(PipelineStep):
+            def __init__(self, name, delay=0.1):
+                super().__init__(name)
+                self.delay = delay
+            def run(self, ctx):
+                import time
+                time.sleep(self.delay)
+                ctx.documents.append(_make_doc(self.name))
+                return self.name
+
+        dag = DagPipeline(parallel=True, max_workers=2)
+        dag.add_step(SlowStep("fast", delay=0.05))
+        dag.add_step(SlowStep("slow", delay=0.2))
+        result = dag.run(stop_on_error=True)
+        assert len(result.documents) == 2
+
+    def test_from_pipeline(self):
+        pipe = Pipeline(LogStep("log1"), LogStep("log2"))
+        dag = DagPipeline.from_pipeline(pipe)
+        assert len(dag._steps) == 2
+        assert dag._steps[0].name == "log1"
+
+    def test_init_with_tuples(self):
+        class SimpleStep(PipelineStep):
+            def run(self, ctx):
+                return "ok"
+        dag = DagPipeline(
+            (SimpleStep("a"), None),
+            (SimpleStep("b"), "a"),
+        )
+        result = dag.run()
+        assert result.steps_run == 2
+
+
+# ==================== Checkpointing ====================
+
+
+class TestCheckpoint:
+    def test_context_save_and_load(self, tmp_path):
+        ctx = PipelineContext(
+            documents=[_make_doc("saved text")],
+            config={"key": "val"},
+            metadata={"version": 1},
+        )
+        path = str(tmp_path / "checkpoint.json")
+        ctx.save(path)
+        loaded = PipelineContext.load(path)
+        assert len(loaded.documents) == 1
+        assert loaded.documents[0].text == "saved text"
+        assert loaded.config["key"] == "val"
+        assert loaded.metadata["version"] == 1
+
+    def test_context_load_missing(self):
+        with pytest.raises(FileNotFoundError):
+            PipelineContext.load("/nonexistent/checkpoint.json")
+
+    def test_dag_resume(self, tmp_path):
+        class CountStep(PipelineStep):
+            def __init__(self, name, counter):
+                super().__init__(name)
+                self.counter = counter
+            def run(self, ctx):
+                self.counter[0] += 1
+                ctx.documents.append(_make_doc(self.name))
+                return self.name
+
+        counter = [0]
+        cp_path = str(tmp_path / "resume.json")
+
+        # First run
+        dag = DagPipeline()
+        dag.add_step(CountStep("s1", counter))
+        dag.add_step(CountStep("s2", counter), depends_on="s1")
+        ctx = PipelineContext()
+        result = dag.run(ctx=ctx, checkpoint_path=cp_path)
+        assert result.steps_run == 2
+        assert counter[0] == 2
+
+        # Second run with resume — docs restored, no new execution
+        counter2 = [0]
+        dag2 = DagPipeline()
+        dag2.add_step(CountStep("s1", counter2))
+        dag2.add_step(CountStep("s2", counter2), depends_on="s1")
+        result2 = dag2.run(resume_from=cp_path)
+        assert result2.steps_run == 0  # all steps already done in checkpoint
+        assert len(result2.documents) == 2  # documents restored from checkpoint
+        assert counter2[0] == 0  # no step actually executed
+
+
+# ==================== ConditionalStep / ParallelStep / WaitStep ====================
+
+
+class TestSpecialSteps:
+    def test_conditional_true_branch(self):
+        condition = lambda ctx: len(ctx.documents) > 0
+        if_step = LogStep("if_branch", message="if ran")
+        else_step = LogStep("else_branch", message="else ran")
+        step = ConditionalStep("cond", condition, if_step, else_step)
+        ctx = PipelineContext(documents=[_make_doc("doc")])
+        result = step._execute(ctx)
+        assert "if" in str(result)
+
+    def test_conditional_false_branch(self):
+        condition = lambda ctx: len(ctx.documents) > 10
+        if_step = LogStep("if_branch", message="if ran")
+        else_step = LogStep("else_branch", message="else ran")
+        step = ConditionalStep("cond", condition, if_step, else_step)
+        ctx = PipelineContext(documents=[_make_doc("doc")])
+        result = step._execute(ctx)
+        assert "else" in str(result)
+
+    def test_conditional_no_else(self):
+        condition = lambda ctx: False
+        if_step = LogStep("if_branch", message="should not run")
+        step = ConditionalStep("cond", condition, if_step)
+        ctx = PipelineContext()
+        result = step._execute(ctx)
+        assert result is None
+
+    def test_wait_step(self):
+        step = WaitStep("wait", delay=0.01)
+        start = __import__("time").time()
+        result = step._execute(PipelineContext())
+        elapsed = __import__("time").time() - start
+        assert elapsed >= 0.01
+        assert "Waited" in result
+
+    def test_parallel_step(self):
+        class SimpleStep(PipelineStep):
+            def __init__(self, name, delay=0.05):
+                super().__init__(name)
+                self.delay = delay
+            def run(self, ctx):
+                import time
+                time.sleep(self.delay)
+                ctx.documents.append(_make_doc(self.name))
+                return self.name
+
+        step = ParallelStep("parallel", SimpleStep("p1", 0.05), SimpleStep("p2", 0.1), max_workers=2)
+        ctx = PipelineContext()
+        results = step._execute(ctx)
+        assert "p1" in results
+        assert "p2" in results
+        assert len(ctx.documents) == 2

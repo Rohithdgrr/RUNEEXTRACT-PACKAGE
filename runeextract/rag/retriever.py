@@ -8,6 +8,7 @@ import logging
 from typing import List, Optional, Dict, Any, Callable
 
 from runeextract.rag.types import ChunkWithScore
+from runeextract.utils.maturity import experimental, beta
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,26 @@ class ChromaRetriever:
             ))
         return chunks
 
+    def delete_by_source(self, source_path: str) -> int:
+        """Delete all entries with matching source path.
+
+        Args:
+            source_path: The file path to match against the "source" metadata field.
+
+        Returns:
+            Number of entries deleted.
+        """
+        try:
+            results = self.collection.get(where={"source": source_path})
+            ids = results.get("ids", [])
+            if ids:
+                self.collection.delete(ids=ids)
+                logger.info("Deleted %d chunks for source: %s", len(ids), source_path)
+            return len(ids)
+        except Exception as exc:
+            logger.warning("delete_by_source failed for %s: %s", source_path, exc)
+            return 0
+
     def list_sources(self) -> List[str]:
         """Return all unique source paths in the collection."""
         try:
@@ -93,10 +114,12 @@ class ChromaRetriever:
                 if src:
                     sources.add(src)
             return list(sources)
-        except Exception:
+        except Exception as exc:
+            logger.warning("list_sources failed: %s", exc)
             return []
 
 
+@experimental(name="rag.faiss")
 class FAISSRetriever:
     """Query a persisted FAISS index with real embeddings."""
 
@@ -112,18 +135,28 @@ class FAISSRetriever:
             return
         try:
             import faiss
-            import pickle
+            import json
             import os
         except ImportError:
             raise ImportError("faiss and numpy are required. Install: pip install faiss-cpu numpy")
 
         index_file = self.index_path + ".index"
-        meta_file = self.index_path + ".meta.pkl"
-        if not os.path.exists(index_file) or not os.path.exists(meta_file):
+        meta_file = self.index_path + ".meta.json"
+        old_meta = self.index_path + ".meta.pkl"
+        if not os.path.exists(index_file):
             raise FileNotFoundError(f"FAISS index not found at {self.index_path}")
+        if not os.path.exists(meta_file) and os.path.exists(old_meta):
+            meta_file = old_meta
+        if not os.path.exists(meta_file):
+            raise FileNotFoundError(f"FAISS metadata not found at {self.index_path}")
         self._index = faiss.read_index(index_file)
-        with open(meta_file, "rb") as f:
-            self._metadata = pickle.load(f)
+        if meta_file.endswith(".pkl"):
+            import pickle
+            with open(meta_file, "rb") as f:
+                self._metadata = pickle.load(f)
+        else:
+            with open(meta_file, "r", encoding="utf-8") as f:
+                self._metadata = json.load(f)
 
     @property
     def index(self):

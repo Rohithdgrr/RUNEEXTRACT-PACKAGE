@@ -1,5 +1,6 @@
 """Tests for password-protected file support (PDF, DOCX, XLSX)."""
 
+import builtins
 import os
 import tempfile
 import pytest
@@ -83,14 +84,26 @@ class TestPasswordProtectedPDF:
 
 
 class TestPasswordProtectedDOCX:
-    def test_open_protected_missing_dep(self):
+    def test_open_protected_missing_dep(self, monkeypatch):
+        orig_import = builtins.__import__
+        def _mock_import(name, *a, **kw):
+            if name == "msoffcrypto":
+                raise ImportError("mock: msoffcrypto not available")
+            return orig_import(name, *a, **kw)
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
         from runeextract.extractors.docx.extractor import DocxExtractor
         with pytest.raises(ExtractionError, match="msoffcrypto"):
             DocxExtractor._open_protected("/nonexistent.docx", "pw")
 
 
 class TestPasswordProtectedXLSX:
-    def test_open_protected_missing_dep(self):
+    def test_open_protected_missing_dep(self, monkeypatch):
+        orig_import = builtins.__import__
+        def _mock_import(name, *a, **kw):
+            if name == "msoffcrypto":
+                raise ImportError("mock: msoffcrypto not available")
+            return orig_import(name, *a, **kw)
+        monkeypatch.setattr(builtins, "__import__", _mock_import)
         from runeextract.extractors.xlsx.extractor import XlsxExtractor
         with pytest.raises(ExtractionError, match="msoffcrypto"):
             XlsxExtractor._open_protected("/nonexistent.xlsx", "pw")

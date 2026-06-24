@@ -5,13 +5,11 @@ Builds a tree of summaries from leaf-level chunks, enabling multi-hop
 reasoning by retrieving context at multiple levels of abstraction.
 """
 
-import json
 import logging
-import math
-import time
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Callable, Tuple, Union
-from collections import defaultdict
+
+from runeextract.utils.maturity import experimental, beta
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +37,7 @@ class HierarchicalResult:
     num_nodes: int = 0
 
 
+@experimental(name="rag.hierarchical")
 class HierarchicalChunker:
     """Build and query a hierarchical summary tree (RAPTOR-style).
 

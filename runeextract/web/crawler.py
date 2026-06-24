@@ -15,6 +15,7 @@ from runeextract.web.feed import discover_feed, parse_feed
 from runeextract.core.router import URLValidator
 from runeextract.exceptions import ResponseSizeError
 from runeextract.utils.logging import log_security_event
+from runeextract.utils.maturity import beta
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class CrawlResult:
     metadata: Dict = field(default_factory=dict)
 
 
+@beta(name="web.crawler")
 class SmartCrawler:
     """Configurable web crawler with sitemap/RSS ingestion, politeness, and robots.txt respect.
 
@@ -216,8 +218,8 @@ class SmartCrawler:
                 if parsed.query:
                     clean += f"?{parsed.query}"
                 links.append(clean)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("BS4 link extraction failed: %s", exc)
         return links
 
     def _init_robots(self) -> None:
@@ -230,7 +232,8 @@ class SmartCrawler:
             self._rp = urllib.robotparser.RobotFileParser()
             self._rp.set_url(urljoin(base, "/robots.txt"))
             self._rp.read()
-        except Exception:
+        except Exception as exc:
+            logger.warning("Robots.txt init failed: %s", exc)
             self._rp = None
 
     def _is_allowed(self, url: str) -> bool:

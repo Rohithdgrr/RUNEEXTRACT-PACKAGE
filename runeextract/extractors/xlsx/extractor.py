@@ -71,8 +71,13 @@ class XlsxExtractor(BaseExtractor):
             office_file = msoffcrypto.OfficeFile(f)
             try:
                 office_file.load_key(password=password)
-            except Exception:
+            except (msoffcrypto.exceptions.InvalidKeyError, msoffcrypto.exceptions.DecryptionError):
                 raise WrongPasswordError(file_path)
+            except Exception as exc:
+                raise ExtractionError(
+                    f"Failed to decrypt XLSX: {exc}",
+                    file_path=file_path, error_code="E005"
+                )
             office_file.decrypt(decrypted)
         decrypted.seek(0)
         return load_workbook(decrypted, read_only=True, data_only=True)

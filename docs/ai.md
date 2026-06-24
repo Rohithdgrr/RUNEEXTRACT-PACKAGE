@@ -18,12 +18,37 @@ Or pass directly:
 ai = AIProcessor(api_key="sk-...", provider="openai")
 ```
 
+### OpenRouter / OpenAI-Compatible Providers
+
+For OpenRouter or any OpenAI-compatible endpoint, set the base URL:
+
+```bash
+export OPENAI_API_KEY="sk-or-v1-..."
+export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+# or
+export OPENROUTER_BASE_URL="https://openrouter.ai/api/v1"
+```
+
+Then use `provider="openrouter"`:
+
+```python
+ai = AIProcessor(provider="openrouter", model="openai/gpt-4o")
+```
+
+The `OPENAI_BASE_URL` env var is also respected by the standard `openai` provider, so you can use it with GitHub Models, Azure AI Studio, or any OpenAI-compatible API.
+
 ## Available Providers
 
 ### OpenAI
 - **Env**: `OPENAI_API_KEY`
 - **Models**: gpt-4o, gpt-4o-mini, gpt-4-turbo, etc.
 - **Supports**: chat, embeddings, function calling, streaming, response_format
+
+### OpenRouter
+- **Env**: `OPENAI_API_KEY` + `OPENAI_BASE_URL` (or `OPENROUTER_BASE_URL`)
+- **Models**: openai/gpt-4o, anthropic/claude-3.5-sonnet, etc.
+- **Supports**: chat, function calling, streaming
+- Access 200+ models through one API, single billing
 
 ### Anthropic (Claude)
 - **Env**: `ANTHROPIC_API_KEY`
@@ -39,12 +64,11 @@ ai = AIProcessor(api_key="sk-...", provider="openai")
 - **No API key needed** (uses localhost:11434)
 - **Models**: llama3.2, mistral, etc. (must be pulled locally)
 - **Supports**: chat, embeddings
-- Requires `openai` Python package for the OpenAI-compatible API
+- OpenAI-compatible API (uses openai Python package)
 
 ### Azure OpenAI
 - **Env**: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_VERSION`
 - **Supports**: chat, function calling, streaming
-- Uses `AzureOpenAI` client from the `openai` package
 
 ### AWS Bedrock
 - **Env**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
@@ -76,15 +100,21 @@ ai = AIProcessor(api_key="sk-...", provider="openai")
 - **Supports**: chat, function calling, streaming
 - Requires `mistralai` package
 
+### Local (transformers)
+- **No API key needed**
+- **Models**: any HuggingFace model
+- **Supports**: chat, embeddings
+- Uses sentence-transformers for embeddings, transformers for text generation
+
 ## Feature Matrix
 
-| Feature | openai | anthropic | gemini | ollama | azure | bedrock | groq | together | deepseek | mistral |
-|---------|--------|-----------|--------|--------|-------|---------|------|----------|----------|---------|
-| Chat | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Streaming | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Function calling | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| Embeddings | ✅ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| response_format | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Feature | openai | openrouter | anthropic | gemini | ollama | azure | bedrock | groq | together | deepseek | mistral | local |
+|---------|--------|------------|-----------|--------|--------|-------|---------|------|----------|----------|---------|-------|
+| Chat | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Streaming | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Function calling | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Embeddings | ✅ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| response_format | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ## Cost Tracking
 
@@ -113,6 +143,44 @@ limiter = RateLimiter(requests_per_minute=30, tokens_per_minute=100000)
 ai = AIProcessor(rate_limiter=limiter)
 ```
 
+## Streaming AI Responses
+
+```python
+from runeextract.processors.ai import AIProcessor
+
+ai = AIProcessor(provider="openai")
+
+# Token-by-token streaming
+for chunk in ai._call_stream("You are helpful.", "Tell me a story."):
+    print(chunk, end="", flush=True)
+
+# Via Document
+doc = extract("report.pdf")
+for chunk in doc.ask_stream("What are the key findings?"):
+    print(chunk, end="", flush=True)
+```
+
+## Multi-Turn Chat
+
+```python
+from runeextract import extract
+
+doc = extract("policy.pdf")
+
+# Create chat session with conversation memory
+chat = doc.chat(system_prompt="You are a policy expert.")
+
+# Each question remembers previous context
+answer1 = chat.ask("What is the remote work policy?")
+answer2 = chat.ask("Can you elaborate on the travel reimbursement?")
+answer3 = chat.ask("How does this relate to the previous answer?")
+
+# Standalone chat (no document)
+from runeextract.models.document import ChatSession
+chat = ChatSession(system_prompt="You are a helpful assistant.")
+answer = chat.ask("What is Python?")
+```
+
 ## Document-Level AI
 
 The Document class provides convenience methods:
@@ -130,6 +198,13 @@ print(doc.flashcards(10))
 # RAG question answering
 answer = doc.ask("What are the key findings?")
 
+# Streaming question answering
+for chunk in doc.ask_stream("Explain in detail."):
+    print(chunk, end="", flush=True)
+
 # PII redaction
 safe_text = doc.redact_pii()
+
+# Differential privacy
+safe_text = doc.redact_pii(use_dp=True, epsilon=5.0)
 ```

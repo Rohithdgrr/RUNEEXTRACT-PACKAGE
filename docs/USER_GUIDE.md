@@ -1,6 +1,6 @@
 # RuneExtract User Guide
 
-Complete user guide for RuneExtract v0.2.0.
+Complete user guide for RuneExtract v0.6.0.
 
 ## Installation
 
@@ -8,10 +8,17 @@ Complete user guide for RuneExtract v0.2.0.
 pip install runeextract
 pip install runeextract[ocr]       # Image/PDF OCR
 pip install runeextract[ai]        # AI summarization & analysis
+pip install runeextract[ai-anthropic]  # Claude AI provider
+pip install runeextract[ai-gemini]     # Gemini AI provider
 pip install runeextract[youtube]   # YouTube transcripts
 pip install runeextract[notion]    # Notion pages
 pip install runeextract[epub]      # EPUB e-books
 pip install runeextract[async]     # Async HTTP
+pip install runeextract[rag]       # Token counting for RAG
+pip install runeextract[embeddings]  # Local embeddings (sentence-transformers)
+pip install runeextract[vector-stores] # ChromaDB + FAISS
+pip install runeextract[audio]     # Audio transcription (Whisper)
+pip install runeextract[video]     # Video extraction (OpenCV)
 pip install runeextract[all]       # Everything
 ```
 
@@ -122,6 +129,44 @@ doc = extract("https://notion.site/my-page-abc123")
 print(doc.text)
 ```
 
+## Streaming AI
+
+```python
+# Token-by-token streaming
+for chunk in doc.ask_stream("Summarize this document."):
+    print(chunk, end="", flush=True)
+
+# Using the AIProcessor directly
+from runeextract.processors.ai import AIProcessor
+ai = AIProcessor(provider="openai")
+for chunk in ai._call_stream("You are helpful.", "Tell me a story."):
+    print(chunk, end="", flush=True)
+```
+
+## Multi-Turn Chat
+
+```python
+from runeextract import extract
+doc = extract("policy.pdf")
+
+# Create a chat session with document context
+chat = doc.chat()
+
+# Each ask() remembers conversation history
+answer1 = chat.ask("What is the remote work policy?")
+answer2 = chat.ask("Can you elaborate?")  # remembers context
+
+# Custom system prompt
+chat = doc.chat(system_prompt="You are a helpful policy analyst.")
+
+# Manual messages
+from runeextract.models.document import ChatSession
+chat = ChatSession()
+chat.add_user_message("Custom user message")
+chat.add_assistant_message("Custom assistant response")
+answer = chat.ask("Follow-up question")
+```
+
 ## Advanced Features
 
 ### Chunking for RAG
@@ -132,15 +177,17 @@ for chunk in chunks:
     print(chunk.chunk_id, chunk.text[:100])
 ```
 
-Strategies: `by_page`, `by_heading` (split on `#`, `##`, `===`, `---`), `semantic` (paragraph-aware), `fixed_size` (with overlap).
+Strategies: `by_page`, `by_heading` (split on `#`, `##`, `===`, `---`), `semantic` (paragraph-aware), `fixed_size` (with overlap), `by_token` (tiktoken-aware), `sentence_window` (group sentences).
 
 ### Serialization
 
 ```python
 doc.to_dict()
-doc.to_json()
+doc.to_json(indent=2)
 doc.to_markdown()
 doc.to_langchain_documents()
+doc.to_llamaindex_documents()
+doc.to_openai_messages(system_message="Analyze this.")
 ```
 
 ### AI Analysis (requires `pip install runeextract[ai]`)
@@ -155,6 +202,13 @@ print(doc.flashcards(n=5))
 ```
 
 Set `OPENAI_API_KEY` env var, or use local AI: `AIProcessor(use_local=True)`.
+
+For OpenRouter or other OpenAI-compatible providers, set `OPENAI_BASE_URL`:
+
+```bash
+export OPENAI_API_KEY="sk-or-v1-..."
+export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+```
 
 ### OCR (requires `pip install runeextract[ocr]`)
 

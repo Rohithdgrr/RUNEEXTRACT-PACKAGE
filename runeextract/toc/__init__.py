@@ -91,7 +91,7 @@ def toc_to_markdown(entries: List[TOCEntry], level: int = 1) -> str:
     return "\n".join(lines)
 
 
-def toc_to_json(entries: List[TOCEntry]) -> list:
+def toc_to_dict(entries: List[TOCEntry]) -> list:
     def _serialize(e: TOCEntry) -> dict:
         d = {"title": e.title, "level": e.level}
         if e.page_number is not None:
@@ -100,3 +100,8 @@ def toc_to_json(entries: List[TOCEntry]) -> list:
             d["children"] = [_serialize(c) for c in e.children]
         return d
     return [_serialize(e) for e in entries]
+
+
+def toc_to_json(entries: List[TOCEntry], indent: Optional[int] = None) -> str:
+    import json
+    return json.dumps(toc_to_dict(entries), indent=indent)

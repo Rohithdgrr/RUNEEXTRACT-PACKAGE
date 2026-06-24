@@ -272,7 +272,7 @@ class TestAutoRAGHierarchical:
         strategy = rag._resolve_chunking(doc)
         assert strategy == "hierarchical"
 
-    @patch("runeextract.rag.auto_pipeline.HierarchicalChunker.build_tree")
+    @patch("runeextract.rag.auto_pipeline.HierarchicalChunker.__wrapped__.build_tree")
     def test_build_hierarchical_tree_called(self, mock_build):
         from runeextract.rag.auto_pipeline import AutoRAG
         from runeextract.models.document import Document, Chunk

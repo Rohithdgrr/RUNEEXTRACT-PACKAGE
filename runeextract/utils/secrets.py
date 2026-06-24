@@ -6,7 +6,7 @@ Integrates with the security logging system for audit trails.
 """
 
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 from dataclasses import dataclass, field
 
 

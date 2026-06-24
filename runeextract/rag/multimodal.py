@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from runeextract.models.document import Document, Image, Table
 from runeextract.rag.types import ChunkWithScore
+from runeextract.utils.maturity import experimental, beta
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ def _image_to_base64(image: Image) -> str:
     return base64.b64encode(image.data).decode("ascii")
 
 
+@beta(name="rag.multimodal")
 class MultiModalIndex:
     """Index text, tables, and images from a Document for multi-modal retrieval.
 

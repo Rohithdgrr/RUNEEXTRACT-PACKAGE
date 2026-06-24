@@ -1,17 +1,17 @@
-"""
-Transform module — document processing DAG pipeline.
-
-Chain extraction, chunking, AI processing, filtering, embedding,
-and storage into a single composable pipeline.
-"""
+"""RuneExtract Transform — DAG pipeline for document processing workflows."""
 
 from runeextract.transform.pipeline import (
     Pipeline,
+    DagPipeline,
     PipelineStep,
     PipelineContext,
     PipelineResult,
     run_pipeline,
+    ConditionalStep,
+    ParallelStep,
+    WaitStep,
 )
+
 from runeextract.transform.steps import (
     ExtractStep,
     ExtractManyStep,
@@ -26,10 +26,14 @@ from runeextract.transform.steps import (
 
 __all__ = [
     "Pipeline",
+    "DagPipeline",
     "PipelineStep",
     "PipelineContext",
     "PipelineResult",
     "run_pipeline",
+    "ConditionalStep",
+    "ParallelStep",
+    "WaitStep",
     "ExtractStep",
     "ExtractManyStep",
     "ChunkStep",

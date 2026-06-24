@@ -51,7 +51,7 @@ def _get_process_memory() -> Optional[Dict[str, float]]:
     except ImportError:
         pass
     except Exception:
-        pass
+        logger.debug("psutil memory info failed", exc_info=True)
 
     # Fallback: try /proc/self/status (Linux only)
     try:
@@ -67,7 +67,7 @@ def _get_process_memory() -> Optional[Dict[str, float]]:
         if rss_kb or vms_kb:
             return {"rss": rss_kb / 1024, "vms": vms_kb / 1024}
     except Exception:
-        pass
+        logger.debug("/proc/self/status read failed", exc_info=True)
 
     return None
 

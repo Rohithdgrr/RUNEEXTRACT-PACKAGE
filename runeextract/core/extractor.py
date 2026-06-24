@@ -149,7 +149,11 @@ class StreamingExtractor(BaseExtractor):
         """
         Extract content progressively, yielding partial Documents.
 
-        Default implementation yields the full document in one chunk.
+        Default implementation yields the full document in one chunk
+        via an executor thread to avoid blocking the event loop.
         Override for page-by-page streaming.
         """
-        yield self.extract(file_path)
+        import asyncio
+        loop = asyncio.get_running_loop()
+        doc = await loop.run_in_executor(None, self.extract, file_path)
+        yield doc

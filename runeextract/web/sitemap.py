@@ -2,7 +2,6 @@
 
 import gzip
 import logging
-import time
 from typing import List, Optional, Set
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree

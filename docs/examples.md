@@ -147,10 +147,40 @@ result = ai.call_with_tools(
 ### Streaming
 
 ```python
+# Via AIProcessor
 ai = AIProcessor()
-
 for chunk in ai._call_stream("You are helpful.", "Tell me about AI safety."):
     print(chunk, end="", flush=True)
+
+# Via Document
+doc = extract("report.pdf")
+for chunk in doc.ask_stream("What are the key findings?"):
+    print(chunk, end="", flush=True)
+```
+
+### Multi-Turn Chat
+
+```python
+from runeextract import extract
+doc = extract("company_policy.pdf")
+
+# Create a chat session
+chat = doc.chat(system_prompt="You are a helpful HR assistant.")
+
+# Multi-turn conversation with memory
+answer1 = chat.ask("What is the vacation policy?")
+print(answer1)
+
+answer2 = chat.ask("How many days do I get?")  # remembers context
+print(answer2)
+
+# Standalone chat without document
+from runeextract.models.document import ChatSession
+chat = ChatSession(system_prompt="You are a coding tutor.")
+chat.add_user_message("Explain Python decorators.")
+chat.add_assistant_message("Decorators are functions that modify other functions...")
+answer = chat.ask("Give me an example.")
+print(answer)
 ```
 
 ### Cost tracking

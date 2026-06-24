@@ -103,7 +103,7 @@ class TestExtractCrawl:
         from runeextract import extract_crawl
         assert callable(extract_crawl)
 
-    @patch("runeextract.extract")
+    @patch("runeextract.core.extraction.extract")
     @patch("requests.get")
     def test_crawl_single_page(self, mock_get, mock_extract):
         from runeextract import extract_crawl
@@ -118,7 +118,7 @@ class TestExtractCrawl:
         assert len(docs) == 1
         assert docs[0].text == "Page content"
 
-    @patch("runeextract.extract")
+    @patch("runeextract.core.extraction.extract")
     @patch("requests.get")
     def test_crawl_skips_external_links(self, mock_get, mock_extract):
         from runeextract import extract_crawl

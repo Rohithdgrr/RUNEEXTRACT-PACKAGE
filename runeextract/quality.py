@@ -78,5 +78,11 @@ class FastMode:
         return cls(**configs.get(level, configs[QualityLevel.STANDARD]))
 
 
-def configure_quality(level: QualityLevel) -> FastMode:
+def configure_quality(level: object = None, **kwargs) -> FastMode:
+    if level is None and "level" in kwargs:
+        level = kwargs.pop("level")
+    if isinstance(level, str):
+        level = QualityLevel(level)
+    if level is None:
+        level = QualityLevel.STANDARD
     return FastMode.for_level(level)

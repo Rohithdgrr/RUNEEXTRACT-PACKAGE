@@ -149,6 +149,7 @@ Thumbs.db
 
 # Test artifacts
 *.pkl
+faiss_test.meta.json
 
 # Project specific
 *.pdf

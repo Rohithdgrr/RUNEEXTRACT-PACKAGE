@@ -2,7 +2,7 @@
 
 import pytest
 
-from runeextract.toc import TOCEntry, TOCParser, extract_toc, toc_to_markdown, toc_to_json
+from runeextract.toc import TOCEntry, TOCParser, extract_toc, toc_to_markdown, toc_to_dict, toc_to_json
 
 
 class TestTOCEntry:
@@ -134,18 +134,31 @@ class TestTOCToMarkdown:
         assert "  - A1" in md
 
 
-class TestTOCToJson:
+class TestTOCToDict:
     def test_simple(self):
         entries = [TOCEntry(title="Intro", level=1)]
-        j = toc_to_json(entries)
+        j = toc_to_dict(entries)
         assert j[0]["title"] == "Intro"
 
     def test_with_page(self):
         entries = [TOCEntry(title="Intro", level=1, page_number=3)]
-        j = toc_to_json(entries)
+        j = toc_to_dict(entries)
         assert j[0]["page_number"] == 3
 
     def test_nested(self):
         e = TOCEntry(title="A", level=1, children=[TOCEntry(title="A1", level=2)])
-        j = toc_to_json([e])
+        j = toc_to_dict([e])
         assert j[0]["children"][0]["title"] == "A1"
+
+
+class TestTOCToJson:
+    def test_returns_string(self):
+        entries = [TOCEntry(title="Intro", level=1)]
+        result = toc_to_json(entries)
+        assert isinstance(result, str)
+        assert '"Intro"' in result
+
+    def test_with_indent(self):
+        entries = [TOCEntry(title="Intro", level=1)]
+        result = toc_to_json(entries, indent=2)
+        assert "\n" in result

@@ -13,7 +13,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any
 
 from runeextract.models.document import Document
 
@@ -148,10 +148,10 @@ class ExtractionCache:
             tables_data = data.get("tables")
             if tables_data:
                 try:
-                    from runeextract.extractors.base import ExtractedTable
-                    doc._tables = [ExtractedTable(**t) if isinstance(t, dict) else t for t in tables_data]
-                except Exception:
-                    pass
+                    from runeextract.models.document import Table
+                    doc._tables = [Table(**t) if isinstance(t, dict) else t for t in tables_data]
+                except Exception as exc:
+                    logger.warning("Failed to restore cached tables: %s", exc)
             # Restore image refs (not raw bytes to avoid memory bloat)
             images_data = data.get("images")
             if images_data:
@@ -223,5 +223,5 @@ class ExtractionCache:
             try:
                 oldest.unlink()
                 self._evictions += 1
-            except OSError:
-                pass
+            except OSError as exc:
+                logger.debug("Cache eviction error: %s", exc)

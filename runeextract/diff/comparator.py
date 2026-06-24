@@ -108,9 +108,14 @@ class DocumentComparator:
         return self.compare_documents(old_doc, new_doc)
 
 
-def diff_documents(old_text: str, new_text: str) -> DiffResult:
+def diff_documents(old_text: object, new_text: object) -> DiffResult:
+    from runeextract.models.document import Document
+    if isinstance(old_text, Document):
+        old_text = old_text.text or ""
+    if isinstance(new_text, Document):
+        new_text = new_text.text or ""
     comparator = DocumentComparator()
-    return comparator.compare_text(old_text, new_text)
+    return comparator.compare_text(str(old_text), str(new_text))
 
 
 def compare_files(old_path: str, new_path: str, **kwargs) -> DiffResult:

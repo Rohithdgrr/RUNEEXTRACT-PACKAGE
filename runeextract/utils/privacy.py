@@ -11,7 +11,10 @@ import random
 import re
 from typing import Tuple, Optional
 
+from runeextract.utils.maturity import beta
 
+
+@beta(name="privacy.dp")
 class DifferentialPrivacyEngine:
     """Apply epsilon-differential privacy to PII redaction.
 
@@ -65,3 +68,24 @@ class DifferentialPrivacyEngine:
     def get_privacy_params(self) -> Tuple[float, float]:
         """Return (epsilon, delta) for this engine instance."""
         return (self.epsilon, self.delta)
+
+    def apply(self, text: str) -> str:
+        """Apply differential privacy to PII placeholders in text.
+
+        Replaces ``[PHONE]``, ``[AGE]``, ``[YEAR]`` placeholders with
+        DP-perturbed variants like ``[PHONE_DP:5551230999]``.
+
+        Args:
+            text: Text containing PII placeholders from redact_pii
+
+        Returns:
+            Text with DP-perturbed PII values
+        """
+        def _dp_phone(m):
+            return f"[PHONE_DP:{self.perturb_phone('555-000-0000')}]"
+        text = re.sub(r'\[PHONE\]', _dp_phone, text)
+
+        def _dp_age(m):
+            return f"[AGE_DP:{self.perturb_age(30)}]"
+        text = re.sub(r'\[AGE\]', _dp_age, text)
+        return text

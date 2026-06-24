@@ -1,4 +1,4 @@
-﻿"""
+"""
 File type router for selecting appropriate extractor.
 """
 
@@ -35,23 +35,6 @@ _URL_EXTRACTORS = [
     (_detect_youtube, "runeextract.extractors.youtube.extractor.YoutubeExtractor"),
     (_detect_notion, "runeextract.extractors.notion.extractor.NotionExtractor"),
 ]
-
-
-# Magic-bytes for content-based format detection (first 8 bytes)
-_MAGIC_BYTES: dict[bytes, str] = {
-    b'%PDF': '.pdf',
-    b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1': '.doc',
-    b'\x89PNG\r\n\x1a\n': '.png',
-    b'\xff\xd8\xff': '.jpg',
-    b'II*\x00': '.tiff',
-    b'MM\x00*': '.tiff',
-    b'GIF87a': '.gif',
-    b'GIF89a': '.gif',
-    b'RIFF': '.webp',
-    b'<!DOCTYPE html': '.html',
-    b'<html': '.html',
-    b'<svg': '.svg',
-}
 
 
 _MAX_ZIP_RATIO = 100  # max decompression ratio for zip bomb detection
@@ -145,7 +128,6 @@ class URLValidator:
     ALLOWED_SCHEMES = {"http", "https"}
     ALLOWED_PORTS = {80, 443, 8080, 8443}
     BLOCKED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "255.255.255.255"}
-    _DNS_CACHE: Dict[str, str] = {}
 
     @classmethod
     def validate(cls, url: str) -> None:
@@ -179,17 +161,12 @@ class URLValidator:
         """Resolve hostname and check if it points to a private IP."""
         import socket
         try:
-            resolved = cls._DNS_CACHE.get(hostname)
-            if resolved is None:
-                resolved = socket.gethostbyname(hostname)
-                cls._DNS_CACHE[hostname] = resolved
+            resolved = socket.gethostbyname(hostname)
             ip = ipaddress.ip_address(resolved)
             if ip.is_private or ip.is_loopback or ip.is_reserved:
                 log_security_event("ssrf_blocked", level="WARNING", url=url,
                                    reason=f"dns resolved to private {resolved}", error_code="E102")
                 raise SSRFBlockedError(url)
-        except SSRFBlockedError:
-            raise
         except OSError:
             pass
 
@@ -215,8 +192,15 @@ def _check_path_traversal(file_path: str) -> None:
     """
     if "\x00" in file_path:
         raise PathTraversalError(file_path)
+
+    if file_path.startswith("\\\\?\\") or file_path.startswith("\\\\.\\"):
+        raise PathTraversalError(file_path)
+
     cleaned = file_path.replace("\\", "/")
-    if "/../" in cleaned or "/.." == cleaned or cleaned.startswith("../") or cleaned == "..":
+    if cleaned == ".." or cleaned.startswith("../") or cleaned.endswith("/..") or "/../" in cleaned:
+        raise PathTraversalError(file_path)
+
+    if cleaned.startswith("//"):
         raise PathTraversalError(file_path)
 
 

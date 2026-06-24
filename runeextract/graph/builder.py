@@ -11,6 +11,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from runeextract.utils.maturity import beta
+
 logger = logging.getLogger(__name__)
 
 
@@ -110,6 +112,7 @@ class DocumentGraph:
         return g
 
 
+@beta(name="graph.builder")
 class GraphBuilder:
     """Build a knowledge graph from document text.
 

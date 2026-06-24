@@ -100,6 +100,6 @@ def _get_metadata(book: Any, key: str, default: str = "") -> str:
         values = book.get_metadata("DC", key)
         if values and values[0]:
             return str(values[0][0])
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("EPUB metadata key '%s' failed: %s", key, exc)
     return default

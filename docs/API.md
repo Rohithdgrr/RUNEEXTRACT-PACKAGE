@@ -1,6 +1,6 @@
 # RuneExtract API Documentation
 
-Complete API reference for RuneExtract v0.2.0.
+Complete API reference for RuneExtract v0.6.0.
 
 ## Main API
 
@@ -16,15 +16,18 @@ doc = extract(file_path, **options)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `file_path` | `str` | required | File path or URL (PDF, DOCX, HTML, Markdown, CSV, JSON, Image, EPUB, YouTube, Notion) |
+| `file_path` | `str` | required | File path or URL (PDF, DOCX, HTML, Markdown, CSV, JSON, Image, EPUB, YouTube, Notion, audio, video) |
 | `ocr` | `bool` | `False` | Enable OCR for images and scanned documents |
 | `tables` | `bool` | `True` | Extract tables |
 | `images` | `bool` | `True` | Extract images |
 | `metadata` | `bool` | `True` | Extract metadata |
-| `chunking_strategy` | `str` | `None` | `by_page`, `by_heading`, `semantic`, `fixed_size` |
-| `chunk_size` | `int` | `1000` | Target chunk size in characters |
-| `chunk_overlap` | `int` | `100` | Overlap between chunks |
+| `chunking_strategy` | `str` | `None` | `by_page`, `by_heading`, `semantic`, `fixed_size`, `by_token`, `sentence_window` |
+| `chunk_size` | `int` | `1000` | Target chunk size in characters (or tokens for `by_token`) |
+| `chunk_overlap` | `int` | `100` | Overlap between chunks (chars or tokens) |
+| `password` | `str` | `None` | Password for protected PDF/DOCX/XLSX files |
+| `extraction_timeout` | `int` | `300` | Max seconds for extraction |
 | `progress_callback` | `callable` | `None` | `cb(stage, current, total)` |
+| `use_cache` | `bool` | `True` | Enable disk cache |
 | `**kwargs` | — | `{}` | Extractor-specific options (ocr_lang, youtube_format, etc.) |
 
 **Returns:** `Document`
@@ -70,15 +73,27 @@ async for doc in extract_stream(file_path, **kwargs) -> AsyncIterator[Document]
 
 **Methods:**
 - `chunks(strategy, size=1000, overlap=100)` — chunk text for RAG
-- `to_dict()` — serialize to dict
-- `to_json()` — serialize to JSON string
-- `to_markdown()` — serialize to Markdown string
-- `to_langchain_documents()` — convert to LangChain Document list
+- `search(query, mode="hybrid", top_k=5, metadata_filter=None)` — search chunks
+- `retrieve(query, top_k=3)` — retrieve top-k chunks
+- `ask(query, **kwargs)` — RAG-enhanced question answering
+- `ask_stream(query, **kwargs)` — streaming token generator
+- `chat(system_prompt=None)` — create multi-turn ChatSession
+- `compress(query, top_k=10)` — contextual compression
 - `summary(**kwargs)` — AI summary (requires AI processor)
 - `keywords(**kwargs)` — AI keyword extraction
 - `entities(**kwargs)` — AI entity extraction
 - `questions(**kwargs)` — AI question generation
 - `flashcards(**kwargs)` — AI flashcard generation
+- `redact_pii(use_dp=False, epsilon=1.0)` — PII redaction
+- `score_quality()` — document quality scoring
+- `to_dict()` — serialize to dict
+- `to_json(indent=2)` — serialize to JSON string
+- `to_markdown()` — serialize to Markdown string
+- `to_openai_messages(system_message, include_images=False)` — vision-format messages
+- `to_langchain_documents()` — convert to LangChain Document list
+- `to_llamaindex_documents()` — convert to LlamaIndex Document list
+- `to_chromadb(collection_name, persist_directory)` — index to ChromaDB
+- `to_faiss(index_path)` — index to FAISS
 
 ### Table
 
@@ -118,28 +133,78 @@ async for doc in extract_stream(file_path, **kwargs) -> AsyncIterator[Document]
 
 | Strategy | Value | Description |
 |----------|-------|-------------|
+| `FIXED_SIZE` | `"fixed_size"` | Fixed-length with overlap |
 | `BY_PAGE` | `"by_page"` | Split by page breaks |
 | `BY_HEADING` | `"by_heading"` | Split by headings / `===` / `---` |
 | `SEMANTIC` | `"semantic"` | Paragraph-aware chunking |
-| `FIXED_SIZE` | `"fixed_size"` | Fixed-length with overlap |
+| `BY_TOKEN` | `"by_token"` | Token-count aware (tiktoken) |
+| `SENTENCE_WINDOW` | `"sentence_window"` | Group sentences into windows with overlap |
 
 ## Extractors
 
 | Extractor | Extensions | Dependencies |
 |-----------|------------|--------------|
-| `PDFExtractor` | `.pdf` | pymupdf, pdfplumber |
-| `PdfStreamingExtractor` | `.pdf` | pymupdf, pdfplumber |
+| `PDFExtractor` | `.pdf` | pymupdf |
+| `PdfStreamingExtractor` | `.pdf` | pymupdf |
 | `DocxExtractor` | `.docx`, `.doc` | python-docx |
 | `PptxExtractor` | `.pptx`, `.ppt` | python-pptx |
 | `XlsxExtractor` | `.xlsx`, `.xls` | openpyxl |
-| `HtmlExtractor` | `.html`, `.htm` | beautifulsoup4, lxml, requests |
-| `MarkdownExtractor` | `.md`, `.markdown` | markdown-it-py |
+| `HtmlExtractor` | `.html`, `.htm` | beautifulsoup4 |
+| `MarkdownExtractor` | `.md`, `.markdown` | (stdlib) |
 | `CsvExtractor` | `.csv` | (stdlib) |
 | `JsonExtractor` | `.json` | (stdlib) |
 | `ImageExtractor` | `.png`, `.jpg`, `.jpeg`, `.tiff`, `.tif`, `.bmp`, `.webp` | Pillow, easyocr (opt) |
 | `EpubExtractor` | `.epub` | EbookLib, beautifulsoup4 |
 | `YoutubeExtractor` | (URL-based) | youtube-transcript-api, yt-dlp |
 | `NotionExtractor` | (URL-based) | requests, aiohttp (opt) |
+| `AudioExtractor` | `.mp3`, `.wav`, `.flac`, `.m4a`, `.ogg`, `.wma`, `.aac`, `.opus` | openai-whisper |
+| `VideoExtractor` | `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`, `.flv`, `.wmv` | opencv-python-headless |
+
+## Multi-Turn Chat (ChatSession)
+
+```python
+from runeextract import extract
+from runeextract.models.document import ChatSession
+
+doc = extract("report.pdf")
+
+# Automatic chat via Document
+chat = doc.chat(system_prompt="You are a helpful document analyst.")
+answer = chat.ask("What are the key findings?")
+
+# Standalone chat (no document)
+chat = ChatSession(system_prompt="You are a helpful assistant.")
+chat.add_user_message("Hello!")
+chat.add_assistant_message("Hi! How can I help you?")
+answer = chat.ask("What is machine learning?")
+
+# Streaming chat
+for chunk in chat.ask_stream("Explain this in detail."):
+    print(chunk, end="", flush=True)
+```
+
+**Methods:**
+- `ask(query)` — send message with conversation history, get response
+- `ask_stream(query)` — streaming version, yields tokens
+- `add_user_message(text)` — manually add user message to history
+- `add_assistant_message(text)` — manually add assistant response to history
+- `system_prompt` — property to view/set system prompt
+
+## Streaming AI
+
+```python
+from runeextract.processors.ai import AIProcessor
+
+ai = AIProcessor(provider="openai", api_key="sk-...")
+
+# Direct streaming from AIProcessor
+for token in ai._call_stream("You are helpful.", "Tell me a story."):
+    print(token, end="", flush=True)
+
+# Via Document
+for token in doc.ask_stream("Summarize this."):
+    print(token, end="", flush=True)
+```
 
 ## Exceptions
 
@@ -150,6 +215,10 @@ async for doc in extract_stream(file_path, **kwargs) -> AsyncIterator[Document]
 | `CorruptFileError` | E002 | Corrupt or unreadable file |
 | `FileTooLargeError` | E003 | File exceeds size limit |
 | `DependencyMissingError` | E004 | Missing optional dependency |
+| `ExtractionTimeoutError` | E005 | Extraction exceeded timeout |
+| `PathTraversalError` | E006 | Path traversal attack detected |
+| `WrongPasswordError` | E108 | Incorrect file password |
+| `StructuredExtractionError` | E107 | Structured extraction failure |
 
 ## Configuration
 

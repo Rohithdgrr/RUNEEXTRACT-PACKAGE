@@ -1,6 +1,6 @@
 # RuneExtract Developer Documentation
 
-Developer guide for RuneExtract v0.2.0.
+Developer guide for RuneExtract v0.6.0.
 
 ## Architecture
 
@@ -18,19 +18,22 @@ Document (unified schema: text, tables, images, metadata)
 
 ```
 runeextract/
-├── __init__.py              # Public API
+├── __init__.py              # Public API (740 lines)
 ├── config.py                # RuneExtractConfig (env/JSON/pyproject)
-├── exceptions.py            # 5 custom exceptions
+├── exceptions.py            # Custom exception hierarchy
 ├── py.typed                 # PEP 561 marker
-├── cli/main.py              # Argparse CLI with 14 flags
+├── cli/
+│   └── main.py              # Argparse CLI
 ├── core/
 │   ├── extractor.py         # BaseExtractor + StreamingExtractor
-│   ├── router.py            # ExtractorRouter (19 builtin extensions + URL routing)
+│   ├── extraction.py        # Core extraction functions
+│   ├── router.py            # ExtractorRouter (format detection + dispatch)
 │   ├── registry.py          # ExtractorRegistry (register, discover, entry points)
-│   ├── cache.py             # ExtractionCache (diskcache/JSON)
+│   ├── cache.py             # ExtractionCache (JSON + gzip)
 │   ├── schemas.py           # ExtractionOptions, ExtractionResult
-│   └── streaming.py         # get_streaming_extractor, _WrappedStreamingExtractor
-├── extractors/              # 12 extractor packages
+│   ├── streaming.py         # get_streaming_extractor
+│   └── async_extractor.py   # Async extraction helpers
+├── extractors/              # 14 extractor packages
 │   ├── pdf/                 # PDFExtractor + PdfStreamingExtractor
 │   ├── docx/                # DocxExtractor
 │   ├── pptx/                # PptxExtractor
@@ -42,13 +45,87 @@ runeextract/
 │   ├── image/               # ImageExtractor (Pillow + easyocr)
 │   ├── epub/                # EpubExtractor (EbookLib)
 │   ├── youtube/             # YoutubeExtractor (youtube-transcript-api + yt-dlp)
-│   └── notion/              # NotionExtractor (REST API)
+│   ├── notion/              # NotionExtractor (REST API)
+│   ├── audio/               # AudioExtractor (Whisper)
+│   └── video/               # VideoExtractor (OpenCV + Whisper)
 ├── processors/
 │   ├── ocr.py               # OCR processor (easyocr singleton)
-│   └── ai.py                # AIProcessor (OpenAI + local transformers)
+│   ├── ai.py                # AIProcessor (reduced: 489 lines)
+│   └── providers/           # Provider modules (plugin registry)
+│       ├── __init__.py      # Registry dispatch: call(), call_stream(), embed()
+│       ├── openai_compat.py # OpenAI, OpenRouter, Azure, Ollama, Groq, etc.
+│       ├── anthropic.py     # Anthropic Claude
+│       ├── gemini.py        # Google Gemini
+│       ├── bedrock.py       # AWS Bedrock
+│       └── local.py         # Local transformers + sentence-transformers
 ├── models/
-│   └── document.py          # Document, Table, Image, Chunk, ChunkingStrategy
-└── tests/                   # 103 tests in 18 files
+│   ├── __init__.py          # Re-exports
+│   ├── document.py          # Document class (572 lines)
+│   ├── types.py             # Chunk, Table, Image, ChunkingStrategy, token utils
+│   ├── chunking.py          # 6 standalone chunking functions
+│   └── chat_session.py      # ChatSession multi-turn conversation
+├── rag/                     # RAG pipeline
+│   ├── auto_pipeline.py     # Auto-RAG (zero-config)
+│   ├── compressor.py        # Contextual compression
+│   ├── retriever.py         # Dense/sparse/hybrid retrieval
+│   ├── evaluate.py          # RAG evaluation metrics
+│   └── hierarchical.py      # RAPTOR-style hierarchical chunking
+├── vision/
+│   └── analyzer.py          # VisionAnalyzer (describe, interpret, caption)
+├── web/
+│   ├── crawler.py           # SmartCrawler
+│   ├── sitemap.py           # Sitemap discovery and parsing
+│   └── feed.py              # RSS/Atom feed parsing
+├── transform/
+│   ├── pipeline.py          # DAG pipeline engine
+│   └── steps.py             # 9 concrete step types
+├── sync/
+│   ├── watcher.py           # DirectoryWatcher
+│   └── extractor.py         # FileSync, scan_and_extract, watch_and_extract
+├── agent/
+│   ├── mcp_server.py        # MCP server tools
+│   ├── langchain.py         # RuneExtractLoader
+│   ├── llamaindex.py        # RuneExtractReader
+│   ├── crewai.py            # RuneExtractTool
+│   └── autogen.py           # autogen_extract_tool
+├── layout/
+│   ├── parser.py            # LayoutParser, BoundingBox, LayoutElement
+│   └── extractor.py         # parse_layout, get_reading_order
+├── diff/
+│   ├── analyzer.py          # DocumentComparator
+│   └── extractor.py         # diff_documents, compare_files
+├── embeddings/
+│   └── onnx.py              # ONNXEmbeddingModel
+├── storage/
+│   ├── base.py              # StorageConnector ABC
+│   ├── s3.py                # S3Connector
+│   ├── gcs.py               # GCSConnector
+│   └── azure.py             # AzureConnector
+├── benchmarks/
+│   └── runner.py            # BenchmarkRunner
+├── dedup/
+│   ├── base.py              # Deduplicator ABC
+│   ├── minhash.py           # MinHashDeduplicator
+│   ├── lsh.py               # LSHDeduplicator
+│   └── embedding.py         # EmbeddingDeduplicator
+├── server/
+│   └── websocket.py         # WebSocket extraction server
+├── utils/
+│   ├── privacy.py           # DifferentialPrivacyEngine
+│   ├── secrets.py           # scan_secrets, redact_secrets
+│   ├── memory.py            # MemoryProfiler
+│   ├── rate_limiter.py      # RateLimiter
+│   └── maturity.py          # @beta decorator
+├── toc/
+│   └── __init__.py          # TOC extraction
+├── citation/
+│   └── analyzer.py          # CitationEngine
+├── structured/
+│   └── extractor.py         # StructuredExtractor, extract_structured
+├── graph/
+│   ├── builder.py           # GraphBuilder
+│   └── extractor.py         # build_document_graph, query_graph
+└── tests/                   # 733 tests across 20+ files
 ```
 
 ## Development Setup
@@ -57,9 +134,9 @@ runeextract/
 git clone https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE.git
 cd RUNEEXTRACT-PACKAGE
 pip install -e ".[dev]"
-pip install -e ".[ocr,ai,youtube,notion,epub,async]"
+pip install -e ".[ocr,ai,youtube,notion,epub,async,audio,video,rag,embeddings,vector-stores]"
 pre-commit install
-pytest                               # 103 tests
+pytest                               # 733 tests
 ```
 
 ## Creating an Extractor
@@ -88,28 +165,53 @@ class MyExtractor(BaseExtractor):
 ## Testing
 
 ```bash
-pytest                                    # All 103 tests
+pytest                                    # All 733 tests
 pytest -v                                 # Verbose
-pytest runeextract/tests/test_models.py   # Single file
+pytest runeextract/tests/test_document.py # Single file
 pytest -k "csv"                           # Filter by keyword
-pytest --cov=runeextract                  # Coverage
+pytest --cov=runeextract --cov-report=html # Coverage report
 ```
 
 Tests use `tempfile.NamedTemporaryFile` for temp files, `pytest.raises` for exceptions, `monkeypatch` for env vars, `pytest.mark.asyncio` for async. No mocking — tests exercise real code paths with simple inputs.
 
 ## CI/CD
 
-- **GitHub Actions** (`.github/workflows/ci.yml`): lint (ruff + codespell), test (matrix Python 3.8–3.12), benchmark
-- **pre-commit** (`.pre-commit-config.yaml`): ruff, codespell, trailing-whitespace, end-of-file-fixer
-- **cibuildwheel** in `pyproject.toml` for binary wheels
+- **GitHub Actions** (`.github/workflows/ci.yml`): lint (ruff), test (Python 3.8–3.13), coverage (Codecov), auto-release on `v*` tags
+- **pre-commit** (`.pre-commit-config.yaml`): ruff (lint + format), codespell, trailing-whitespace, end-of-file-fixer
 
 ## Releasing
 
+Releases are automated via GitHub Actions when a `v*` tag is pushed:
+
 ```bash
-# Update version in __init__.py and pyproject.toml
+git tag v0.7.0
+git push origin v0.7.0
+```
+
+This triggers: build → test → publish to PyPI → create GitHub Release.
+
+### Manual release (alternative):
+
+```bash
+pip install build twine
 python -m build
 twine check dist/*
 twine upload dist/*
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.7.0
+git push origin v0.7.0
 ```
+
+## Key Architecture Decisions
+
+### Provider Plugin System
+Provider-specific code is in `processors/providers/` — each module exports `create_client()`, `call()`, `call_stream()`, and optionally `embed()`. The registry dispatches via `importlib.import_module()` — no circular imports, no static import of `AIProcessor`.
+
+### Document Refactoring
+The old single-file `models/document.py` (1170 lines) was split into:
+- `models/types.py` — data types (Chunk, Table, Image)
+- `models/chunking.py` — 6 standalone chunking functions
+- `models/chat_session.py` — ChatSession multi-turn conversation
+- `models/document.py` — Document class (572 lines, imports from above)
+
+### Lazy Loading
+All optional dependencies (OCR, AI, audio, video, etc.) are loaded lazily inside functions. The package imports instantly even without any optional extras installed.

@@ -6,10 +6,12 @@ import logging
 from typing import List, Optional
 
 from runeextract.rag.types import ChunkWithScore
+from runeextract.utils.maturity import beta
 
 logger = logging.getLogger(__name__)
 
 
+@beta(name="rag.compressor")
 class ContextualCompressor:
     """Compress retrieved chunks to fit within a token budget.
 
@@ -64,8 +66,8 @@ class ContextualCompressor:
                 try:
                     summary = self.llm_complete(prompt, max_tokens=200)
                     c.text = summary.strip()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Chunk summarization failed: %s", exc)
             result.append(c)
         return result
 

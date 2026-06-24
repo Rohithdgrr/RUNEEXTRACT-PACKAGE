@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "runeextract"
-version = "0.6.0"
+version = "0.7.0"
 description = "One extraction API for every document type — lightweight, zero heavy default deps"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -80,10 +80,9 @@ server = ["websockets>=12.0.0,<14.0.0"]
 dataframe = ["pandas>=2.0.0,<3.0.0"]
 xml = ["lxml>=4.9.0,<6.0.0"]
 pdf-alt = ["pdfplumber>=0.10.0,<1.0.0"]
-markdown = ["markdown-it-py>=3.0.0,<4.0.0"]
 # Meta extras
 all = [
-    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,rag,embeddings,vector-stores,audio,video,structured,protected,server,dataframe,xml,pdf-alt,markdown]",
+    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,rag,embeddings,vector-stores,audio,video,structured,protected,server,dataframe,xml,pdf-alt]",
 ]
 auto-rag = ["runeextract[rag,embeddings,vector-stores]"]
 dev = [
@@ -142,13 +141,4 @@ filterwarnings = [
     "ignore::DeprecationWarning",
 ]
 
-[tool.cibuildwheel]
-build = ["cp38-*", "cp39-*", "cp310-*", "cp311-*", "cp312-*", "cp313-*"]
-skip = ["*-win32", "*-manylinux_i686", "*-musllinux_*"]
-test-command = "python -c 'from runeextract import extract; print(\"ok\")'"
 
-[tool.cibuildwheel.linux]
-manylinux-x86_64-image = "manylinux2014"
-
-[tool.cibuildwheel.macos]
-archs = ["x86_64", "arm64"]

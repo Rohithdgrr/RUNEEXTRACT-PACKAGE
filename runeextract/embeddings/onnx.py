@@ -7,9 +7,12 @@ Optional: huggingface_hub (for downloading models)
 import logging
 from typing import List, Optional
 
+from runeextract.utils.maturity import beta
+
 logger = logging.getLogger(__name__)
 
 
+@beta(name="embeddings.onnx")
 class ONNXEmbeddingModel:
     """Run an ONNX embedding model on-device.
 
@@ -114,9 +117,14 @@ class ONNXEmbeddingModel:
             input_ids = self._simple_tokenize(texts)
             attention_mask = np.ones_like(input_ids)
 
+        # Check model inputs and provide token_type_ids if required
+        session_inputs = {inp.name for inp in self._session.get_inputs()}
+        feed_dict = {"input_ids": input_ids, "attention_mask": attention_mask}
+        if "token_type_ids" in session_inputs:
+            feed_dict["token_type_ids"] = np.zeros_like(input_ids)
         outputs = self._session.run(
             None,
-            {"input_ids": input_ids, "attention_mask": attention_mask},
+            feed_dict,
         )
         embeddings = outputs[0]
         embeddings = self._mean_pooling(embeddings, attention_mask)

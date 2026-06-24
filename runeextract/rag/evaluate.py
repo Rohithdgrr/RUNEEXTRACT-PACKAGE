@@ -7,10 +7,12 @@ import random
 from typing import List, Dict, Any, Optional, Callable, Tuple
 
 from runeextract.models.document import Document
+from runeextract.utils.maturity import beta
 
 logger = logging.getLogger(__name__)
 
 
+@beta(name="rag.evaluate")
 class RAGEvaluator:
     """Evaluate RAG pipeline quality with auto-generated test sets."""
 
@@ -70,10 +72,12 @@ class RAGEvaluator:
         """Run evaluation and return per-metric aggregates.
 
         Metrics:
-            - answer_relevance: semantic similarity between answer and question
+            - answer_relevance: lexical overlap between answer and question
+            - answer_relevance_llm: LLM-judged relevance (when ``llm_complete`` set)
             - context_precision: proportion of retrieved chunks containing the answer
-            - faithfulness: whether answer is fully supported by retrieved context
-            - answer_similarity: semantic similarity between generated and expected answer
+            - faithfulness: lexical overlap between answer and context
+            - faithfulness_llm: LLM-judged faithfulness (when ``llm_complete`` set)
+            - answer_similarity: Jaccard similarity between generated and expected answer
 
         Requires ``self.query_fn`` to be set.
         """
@@ -82,15 +86,18 @@ class RAGEvaluator:
 
         raw: Dict[str, List[float]] = {
             "answer_relevance": [],
+            "answer_relevance_llm": [],
             "context_precision": [],
             "faithfulness": [],
+            "faithfulness_llm": [],
             "answer_similarity": [],
         }
 
         for tc in test_set:
             try:
                 result = self.query_fn(tc["question"], top_k=5, return_citations=True)
-            except Exception:
+            except Exception as exc:
+                logger.warning("Evaluation query failed: %s", exc)
                 continue
             retrieved = [c.text for c in result.retrieved_chunks]
             context = "\n".join(retrieved)
@@ -98,11 +105,17 @@ class RAGEvaluator:
             raw["answer_relevance"].append(
                 self._rate_relevance(result.answer, tc["question"])
             )
+            raw["answer_relevance_llm"].append(
+                self._rate_relevance_llm(result.answer, tc["question"])
+            )
             raw["context_precision"].append(
                 self._has_answer(retrieved, tc["answer"])
             )
             raw["faithfulness"].append(
                 self._rate_faithfulness(result.answer, context)
+            )
+            raw["faithfulness_llm"].append(
+                self._rate_faithfulness_llm(result.answer, context)
             )
             raw["answer_similarity"].append(
                 self._semantic_similarity(result.answer, tc["answer"])
@@ -124,6 +137,38 @@ class RAGEvaluator:
             if line.startswith("A:") or line.startswith("A "):
                 a = line.split(":", 1)[1].strip() if ":" in line else None
         return q, a
+
+    def _rate_relevance_llm(self, answer: str, question: str) -> float:
+        """LLM-judged relevance when an LLM is available."""
+        if not self.llm_complete:
+            return 0.0
+        try:
+            prompt = (
+                "Rate the relevance of the ANSWER to the QUESTION "
+                "on a scale of 0.0 to 1.0. Only respond with the number.\n\n"
+                f"QUESTION: {question}\nANSWER: {answer}"
+            )
+            response = self.llm_complete(prompt, max_tokens=10)
+            score = float(response.strip())
+            return max(0.0, min(1.0, score))
+        except Exception:
+            return 0.0
+
+    def _rate_faithfulness_llm(self, answer: str, context: str) -> float:
+        """LLM-judged faithfulness — how much of the answer is supported."""
+        if not self.llm_complete or not answer or not context:
+            return 0.0 if not answer else self._rate_faithfulness(answer, context)
+        try:
+            prompt = (
+                "Rate how much of the ANSWER is supported by the CONTEXT "
+                "on a scale of 0.0 to 1.0. Only respond with the number.\n\n"
+                f"CONTEXT: {context[:2000]}\nANSWER: {answer}"
+            )
+            response = self.llm_complete(prompt, max_tokens=10)
+            score = float(response.strip())
+            return max(0.0, min(1.0, score))
+        except Exception:
+            return self._rate_faithfulness(answer, context)
 
     def _rate_relevance(self, answer: str, question: str) -> float:
         """Simple lexical relevance: word overlap ratio."""

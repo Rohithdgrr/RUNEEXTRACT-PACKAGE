@@ -5,8 +5,9 @@ import os
 
 import pytest
 
-from runeextract.agent.mcp_server import mcp_tool_extract, mcp_tool_extract_many, mcp_tool_crawl
-from runeextract.agent.langchain import RuneExtractLoader
+from runeextract.agent.mcp_server import mcp_tool_extract, mcp_tool_extract_many, mcp_tool_search, mcp_tool_crawl
+from runeextract.agent.langchain import RuneExtractLoader, RuneExtractTransformer
+from runeextract.models.document import Document
 from runeextract.agent.llamaindex import RuneExtractReader
 from runeextract.agent.crewai import RuneExtractTool
 from runeextract.agent.autogen import autogen_extract_tool
@@ -58,6 +59,12 @@ class TestMCP:
         result = await mcp_tool_crawl("http://nonexistent.invalid", max_pages=1)
         assert isinstance(result, str)
 
+    @pytest.mark.asyncio
+    async def test_mcp_tool_search_no_sources(self):
+        result = await mcp_tool_search("test query", source_paths=[])
+        assert isinstance(result, str)
+        assert "No sources provided" in result
+
 
 # ── LangChain ────────────────────────────────────────────
 
@@ -97,6 +104,39 @@ class TestLangChain:
             assert len(docs) >= 1
         finally:
             os.unlink(f.name)
+
+    def test_transformer(self, md_file):
+        loader = RuneExtractLoader(md_file)
+        docs = loader.load()
+        transformer = RuneExtractTransformer(chunk_strategy="fixed_size", chunk_size=10, chunk_overlap=2)
+        chunked = transformer.transform_documents(docs)
+        assert len(chunked) >= 1
+        if hasattr(chunked[0], "page_content"):
+            text = chunked[0].page_content
+        else:
+            text = chunked[0]["page_content"]
+        assert isinstance(text, str)
+
+    def test_transformer_empty(self):
+        transformer = RuneExtractTransformer()
+        result = transformer.transform_documents([])
+        assert result == []
+
+    def test_transformer_dicts(self):
+        transformer = RuneExtractTransformer(chunk_size=50, chunk_overlap=10)
+        docs = [{"page_content": "Hello world. " * 20, "metadata": {"source": "test.txt"}}]
+        chunked = transformer.transform_documents(docs)
+        assert len(chunked) >= 2
+        if hasattr(chunked[0], "page_content"):
+            text = chunked[0].page_content
+        else:
+            text = chunked[0]["page_content"]
+        assert len(text) > 0
+
+    def test_to_langchain_documents_import_error(self):
+        doc = Document(text="Hello world. " * 50, metadata={"key": "val"})
+        with pytest.raises(ImportError, match="langchain-core"):
+            doc.to_langchain_documents()
 
 
 # ── LlamaIndex ──────────────────────────────────────────

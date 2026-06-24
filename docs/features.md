@@ -30,12 +30,20 @@
 | `by_token` | Split by token count using tiktoken |
 | `sentence_window` | Split on sentence boundaries, group into windows with overlap |
 
-## AI Providers (10)
+## Streaming AI & Multi-Turn Chat
+
+- **Streaming**: `doc.ask_stream()` yields tokens as they arrive, `AIProcessor._call_stream()` for direct use
+- **Chat Sessions**: `doc.chat()` creates `ChatSession` with conversation memory for multi-turn dialogue
+- **Custom system prompts**: Per-chat-system-prompt support
+- **Manual message injection**: `add_user_message()`, `add_assistant_message()` for pre-seeding conversations
+
+## AI Providers (12)
 
 | Provider | Env Variable | Features |
 |----------|-------------|----------|
 | OpenAI | `OPENAI_API_KEY` | Chat, embeddings, function calling, streaming |
-| Anthropic | `ANTHROPIC_API_KEY` | Chat, streaming |
+| OpenRouter | `OPENAI_API_KEY` + `OPENAI_BASE_URL` | Chat, function calling, streaming (200+ models) |
+| Anthropic | `ANTHROPIC_API_KEY` | Chat |
 | Google Gemini | `GEMINI_API_KEY` | Chat |
 | Ollama (local) | — | Chat, embeddings (local) |
 | Azure OpenAI | `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT` | Chat, function calling, streaming |
@@ -44,6 +52,9 @@
 | Together AI | `TOGETHER_API_KEY` | Chat, function calling, streaming |
 | DeepSeek | `DEEPSEEK_API_KEY` | Chat, function calling, streaming |
 | Mistral AI | `MISTRAL_API_KEY` | Chat, function calling, streaming |
+| Local (transformers) | — | Chat, embeddings (on-device) |
+
+## RAG Features
 
 ## RAG Features
 
@@ -69,6 +80,20 @@
 - **PII redaction**: `redact_pii()` — AI-powered PII removal
 - **Magic-byte detection**: Content-based format detection without extension
 - **Per-file cache invalidation**: TTL-based caching with per-file granularity
+
+## RAG Features (Tier 2 — 9 Game-Changing Features)
+
+| # | Feature | Description | Wiring |
+|---|---------|-------------|--------|
+| 6 | **Smart Query Routing** | Intent-based routing to specialized RAG pipelines | `auto_rag(..., routing_rags={...})` |
+| 7 | **Semantic Caching** | Embedding-based cache saves 60%+ on repeat queries | `auto_rag(..., semantic_cache=True)` |
+| 8 | **Analytics Dashboard** | Query metrics, time series, latency tracking, CSV export | `auto_rag(..., analytics=True)` |
+| 9 | **A/B Experiments** | Multi-variant testing with user bucketing, statistical significance | `auto_rag(..., experiment_config={...})` |
+| 10 | **Multi-Language** | Auto-detect language, translate queries, cross-lingual search | `auto_rag(..., multi_language=True)` |
+| 11 | **RBAC** | Role-based access control, field-level redaction, audit logging | `auto_rag(..., rbac=True)` |
+| 12 | **Streaming RAG** | Progressive refinement with 5-stage streaming pipeline | `auto_rag(..., streaming=True)` |
+| 13 | **RAG-as-a-Service API** | FastAPI REST API with auth, rate limiting, streaming, metrics | `rag.create_api_server()` / `rag.serve()` |
+| 14 | **Chain-of-Thought** | Multi-step reasoning, decomposition, self-correction | `auto_rag(..., reasoning=True)` |
 
 ## Web Crawling
 

@@ -56,8 +56,13 @@ class DocxExtractor(BaseExtractor):
             office_file = msoffcrypto.OfficeFile(f)
             try:
                 office_file.load_key(password=password)
-            except Exception:
+            except (msoffcrypto.exceptions.InvalidKeyError, msoffcrypto.exceptions.DecryptionError):
                 raise WrongPasswordError(file_path)
+            except Exception as exc:
+                raise ExtractionError(
+                    f"Failed to decrypt DOCX: {exc}",
+                    file_path=file_path, error_code="E005"
+                )
             office_file.decrypt(decrypted)
         decrypted.seek(0)
         return Document(decrypted)
@@ -74,8 +79,8 @@ class DocxExtractor(BaseExtractor):
                 t = ocr_text(img.data)
                 if t:
                     result.append(f"[OCR: {t}]")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("OCR text extraction failed: %s", exc)
         return "\n".join(result)
 
     def _extract_metadata(self, doc: Document) -> Dict[str, Any]:

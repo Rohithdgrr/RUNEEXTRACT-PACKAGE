@@ -140,6 +140,23 @@ class MapStep(PipelineStep):
         return ctx.documents
 
 
+_shared_ai = None
+
+
+def _get_ai():
+    global _shared_ai
+    if _shared_ai is None:
+        from runeextract.processors.ai import AIProcessor
+        _shared_ai = AIProcessor()
+    return _shared_ai
+
+
+def _reset_ai():
+    """Reset the shared AI singleton (used in tests)."""
+    global _shared_ai
+    _shared_ai = None
+
+
 class AIStep(PipelineStep):
     """Apply AI processing (summarize, extract_entities, Q&A, etc.) to documents.
 
@@ -157,13 +174,12 @@ class AIStep(PipelineStep):
     """
 
     def run(self, ctx: PipelineContext) -> List[Dict[str, Any]]:
-        from runeextract.processors.ai import AIProcessor
+        ai = _get_ai()
 
         action = self._kwargs.get("action", "summarize")
         store_in = self._kwargs.get("store_in", action)
         ai_kw = self._kwargs.get("ai_kwargs", {})
 
-        ai = AIProcessor()
         results = []
 
         for doc in ctx.documents:
@@ -207,12 +223,10 @@ class EmbedStep(PipelineStep):
     """
 
     def run(self, ctx: PipelineContext) -> List[List[float]]:
-        from runeextract.processors.ai import AIProcessor
+        ai = _get_ai()
 
         store_in = self._kwargs.get("store_in", "embedding")
         ai_kw = self._kwargs.get("ai_kwargs", {})
-
-        ai = AIProcessor()
 
         results = []
         for doc in ctx.documents:

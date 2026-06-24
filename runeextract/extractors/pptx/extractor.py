@@ -101,8 +101,8 @@ class PptxExtractor(BaseExtractor):
                 t = ocr_text(img.data)
                 if t:
                     result.append(f"[OCR: {t}]")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("OCR text extraction failed: %s", exc)
         return "\n".join(result)
 
     def supported_extensions(self) -> list[str]:
