@@ -125,13 +125,20 @@ OpenAI, OpenRouter, Anthropic, Gemini, Ollama, Azure, Bedrock, Groq, Together, D
 - Custom system prompts, manual message injection, RAG context integration
 
 ### RAG
-- Hybrid search (dense + BM25)
+- **Hybrid search OOTB** (dense + BM25 with RRF fusion, enabled by default)
+- **Source grounding** (char offsets through Chunk → ChunkWithScore → Citation)
+- **Auto query rewriter** (detects question type, auto-enables HyDE/MultiQuery)
+- **Domain templates** (financial/legal/medical/academic presets in `auto_rag(..., domain=)`)
+- **Multi-level caching** (LRU+TTL for embeddings, search, answers — wired into AutoRAG)
+- **Query router** (intent classification, filter extraction, query decomposition in `auto_rag(..., query_router=True)`)
+- **Context packer** (token-budget-aware chunk packing via `rag.query(..., max_tokens=2000)`)
+- **Adaptive hybrid search** (query-aware dense/sparse weight tuning)
 - Metadata filtering
 - ChromaDB / FAISS vector stores
 - Contextual compression
 - Extract-and-index pipeline
 - Auto-RAG (zero-config pipeline)
-- Hierarchical / RAPTOR chunking
+- Hierarchical / RAPTOR chunking (with parent-child links)
 - Multi-modal RAG (text + tables + images)
 - Citation engine (auto-cite with `[N]` markers)
 
@@ -148,7 +155,10 @@ result = extract_structured("invoice.pdf", Invoice)
 ```
 
 ### Agent Tools
-- MCP Server tools (extract, search, crawl)
+- **MCP Server CLI** (`runeextract-mcp`) with `extract_url`, `ask_documents`, `chunk_document` tools
+- **LangGraph** `RuneExtractGraphTool`, `RuneExtractSearchTool`, `RuneExtractAskTool`
+- **OpenAI Agents SDK** `rune_extract_function_tool()`, `rune_extract_search_tool()`
+- **PydanticAI** `RuneExtractAITool`, `RuneExtractSearchAITool`
 - LangChain `RuneExtractLoader`
 - LlamaIndex `RuneExtractReader`
 - CrewAI `RuneExtractTool`

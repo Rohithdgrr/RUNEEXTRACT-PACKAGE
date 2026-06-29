@@ -18,6 +18,9 @@ class Citation:
     extracted_at: Optional[str] = None
     retrieval_rank: Optional[int] = None
     similarity_score: Optional[float] = None
+    # Phase 0: Source Grounding — character offsets
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
 
 
 @dataclass
@@ -30,6 +33,9 @@ class ChunkWithScore:
     chunk_id: str = ""
     page: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Phase 0: Source Grounding — character offsets
+    char_start: Optional[int] = None
+    char_end: Optional[int] = None
 
 
 @dataclass

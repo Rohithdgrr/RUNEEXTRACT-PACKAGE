@@ -32,6 +32,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--youtube-format", choices=["transcript", "metadata", "chapters", "full"], default="full",
                         help="YouTube output format (default: full)")
     parser.add_argument("--ai-summarize", action="store_true", help="Run AI summary after extraction")
+    parser.add_argument("--mcp-server", action="store_true", help="Start the MCP server (requires runeextract[mcp])")
+    parser.add_argument("--mcp-host", type=str, default="127.0.0.1", help="MCP server bind address (default: 127.0.0.1)")
+    parser.add_argument("--mcp-port", type=int, default=8000, help="MCP server port (default: 8000)")
     parser.add_argument("--version", "-v", action="store_true", help="Show version and exit")
     return parser
 
@@ -94,6 +97,12 @@ def main() -> None:
         sys.exit(0)
 
     args = parser.parse_args()
+
+    # Handle --mcp-server mode
+    if args.mcp_server:
+        from runeextract.agent.mcp_server import run_mcp_server
+        run_mcp_server(host=args.mcp_host, port=args.mcp_port)
+        return
 
     # Handle --watch mode
     if args.watch:

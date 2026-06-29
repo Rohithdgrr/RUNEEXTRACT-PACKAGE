@@ -8,14 +8,14 @@ from runeextract.config import get_config, set_config
 from runeextract.exceptions import ExtractionError, PathTraversalError, ExtractionTimeoutError, WrongPasswordError
 from runeextract.models.document import Document, ChunkingStrategy, ChatSession
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 __all__ = [
     "extract", "extract_many", "extract_many_with_errors",
     "extract_async", "extract_many_async", "extract_async_url", "extract_many_async_url", "batch_process", "ProcessPoolExtractor", "extract_and_index",
     "extract_stream", "extract_from_bytes", "extract_from_string",
     "extract_crawl",
     "Document", "ChunkingStrategy", "get_config", "set_config",
-    "AutoRAG", "auto_rag", "instant_rag", "RobustRAG", "RAGDebugger", "ConfidenceScorer", "QueryRouter",
+    "AutoRAG", "auto_rag", "instant_rag", "RobustRAG", "RAGDebugger", "ConfidenceScorer", "QueryRouter", "QueryAnalyzer",
     "scan_secrets", "redact_secrets", "MemoryProfiler",
     "DifferentialPrivacyEngine", "SecretFinding", "WrongPasswordError",
     "StructuredExtractor", "extract_structured", "StructuredExtractionError",
@@ -28,11 +28,16 @@ __all__ = [
     "DirectoryWatcher", "FileEvent", "poll_directory",
     "FileSync", "sync_directories",
     "scan_and_extract", "watch_and_extract",
-    "mcp_tool_extract", "mcp_tool_extract_many", "mcp_tool_search",
+    "mcp_tool_extract", "mcp_tool_extract_many", "mcp_tool_extract_url",
+    "mcp_tool_search", "mcp_tool_ask", "mcp_tool_crawl", "mcp_tool_chunk",
+    "run_mcp_server", "main_cli",
     "RuneExtractLoader", "RuneExtractTransformer",
     "RuneExtractReader",
     "RuneExtractTool",
     "autogen_extract_tool",
+    "RuneExtractGraphTool", "RuneExtractSearchTool", "RuneExtractAskTool",
+    "rune_extract_function_tool", "rune_extract_search_tool",
+    "RuneExtractAITool", "RuneExtractSearchAITool",
     "LayoutElement", "BoundingBox", "LayoutParser",
     "parse_layout", "get_reading_order",
     "DiffChange", "DiffResult", "DocumentComparator",
@@ -130,6 +135,12 @@ def QueryRouter(*args, **kwargs):
     """Lazy import for :class:`runeextract.rag.QueryRouter`."""
     from runeextract.rag.query_router import QueryRouter as _QR
     return _QR(*args, **kwargs)
+
+
+def QueryAnalyzer(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.query_analyzer.QueryAnalyzer`."""
+    from runeextract.rag.query_analyzer import QueryAnalyzer as _QA
+    return _QA(*args, **kwargs)
 
 
 # --- Tier 3 Security: lazy imports ---
@@ -415,6 +426,78 @@ def autogen_extract_tool(*args, **kwargs):
     """Lazy import for :func:`runeextract.agent.autogen_extract_tool`."""
     from runeextract.agent.autogen import autogen_extract_tool as _at
     return _at(*args, **kwargs)
+
+
+def mcp_tool_extract_url(*args, **kwargs):
+    """Lazy import for :func:`runeextract.agent.mcp_tool_extract_url`."""
+    from runeextract.agent.mcp_server import mcp_tool_extract_url as _mcp
+    return _mcp(*args, **kwargs)
+
+
+def mcp_tool_ask(*args, **kwargs):
+    """Lazy import for :func:`runeextract.agent.mcp_tool_ask`."""
+    from runeextract.agent.mcp_server import mcp_tool_ask as _mcp
+    return _mcp(*args, **kwargs)
+
+
+def mcp_tool_chunk(*args, **kwargs):
+    """Lazy import for :func:`runeextract.agent.mcp_tool_chunk`."""
+    from runeextract.agent.mcp_server import mcp_tool_chunk as _mcp
+    return _mcp(*args, **kwargs)
+
+
+def run_mcp_server(*args, **kwargs):
+    """Lazy import for :func:`runeextract.agent.run_mcp_server`."""
+    from runeextract.agent.mcp_server import run_mcp_server as _rms
+    return _rms(*args, **kwargs)
+
+
+def main_cli(*args, **kwargs):
+    """Lazy import for :func:`runeextract.agent.main_cli`."""
+    from runeextract.agent.mcp_server import main_cli as _mc
+    return _mc(*args, **kwargs)
+
+
+def RuneExtractGraphTool(*args, **kwargs):
+    """Lazy import for :class:`runeextract.agent.langgraph.RuneExtractGraphTool`."""
+    from runeextract.agent.langgraph import RuneExtractGraphTool as _REGT
+    return _REGT(*args, **kwargs)
+
+
+def RuneExtractSearchTool(*args, **kwargs):
+    """Lazy import for :class:`runeextract.agent.langgraph.RuneExtractSearchTool`."""
+    from runeextract.agent.langgraph import RuneExtractSearchTool as _REST
+    return _REST(*args, **kwargs)
+
+
+def RuneExtractAskTool(*args, **kwargs):
+    """Lazy import for :class:`runeextract.agent.langgraph.RuneExtractAskTool`."""
+    from runeextract.agent.langgraph import RuneExtractAskTool as _REAT
+    return _REAT(*args, **kwargs)
+
+
+def rune_extract_function_tool(*args, **kwargs):
+    """Lazy import for :func:`runeextract.agent.openai_sdk.rune_extract_function_tool`."""
+    from runeextract.agent.openai_sdk import rune_extract_function_tool as _reft
+    return _reft(*args, **kwargs)
+
+
+def rune_extract_search_tool(*args, **kwargs):
+    """Lazy import for :func:`runeextract.agent.openai_sdk.rune_extract_search_tool`."""
+    from runeextract.agent.openai_sdk import rune_extract_search_tool as _rest
+    return _rest(*args, **kwargs)
+
+
+def RuneExtractAITool(*args, **kwargs):
+    """Lazy import for :class:`runeextract.agent.pydantic_ai.RuneExtractAITool`."""
+    from runeextract.agent.pydantic_ai import RuneExtractAITool as _REAIT
+    return _REAIT(*args, **kwargs)
+
+
+def RuneExtractSearchAITool(*args, **kwargs):
+    """Lazy import for :class:`runeextract.agent.pydantic_ai.RuneExtractSearchAITool`."""
+    from runeextract.agent.pydantic_ai import RuneExtractSearchAITool as _RESAIT
+    return _RESAIT(*args, **kwargs)
 
 
 # --- Layout-aware parsing ---

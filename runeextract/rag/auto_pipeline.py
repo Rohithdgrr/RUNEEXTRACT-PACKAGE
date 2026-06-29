@@ -24,11 +24,16 @@ from runeextract.exceptions import DependencyMissingError
 from runeextract.utils.maturity import beta
 from runeextract.rag.confidence import ConfidenceScorer
 from runeextract.rag.semantic_cache import SemanticCache
+from runeextract.rag.cache import RAGCache
 from runeextract.rag.streaming import StreamingRAG, StreamEvent, StreamEventType
 from runeextract.rag.analytics import RAGAnalytics
 from runeextract.rag.routing import QueryRouter as RouterV2
 from runeextract.rag.multilingual import MultilingualRAG
 from runeextract.rag.reasoning import ChainOfThoughtReasoner
+from runeextract.rag.templates import DomainConfig, DomainTemplates
+from runeextract.rag.embedding_selector import resolve_embedding, get_domain_embedding
+from runeextract.rag.query_router import QueryRouter as QueryRouterV2, QueryIntent
+from runeextract.rag.context_packer import ContextPacker, PackedContext
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +73,14 @@ def auto_rag(source: Union[str, List[str]],
              translation_provider: str = "openai",
              reasoning: bool = False,
              reasoning_max_steps: int = 5,
+             # Phase 0 features
+             hybrid_search: bool = True,
+             auto_query: bool = True,
+             # Phase 1 features
+             domain: Optional[str] = None,
+             # Phase 2 features
+             query_router: bool = False,
+             context_packer: Optional[int] = None,
              **extract_options) -> "AutoRAG":
     """Convenience factory: create an AutoRAG pipeline and ingest the source.
 
@@ -103,6 +116,10 @@ def auto_rag(source: Union[str, List[str]],
         reasoning: Enable chain-of-thought reasoning for complex queries
         reasoning_max_steps: Max decomposition steps for CoT reasoning
         
+        Phase 1 features:
+        domain: Domain preset (``"financial"``, ``"legal"``, ``"medical"``, ``"academic"``)
+                auto-configures chunking, embedding, reranker for the domain.
+        
         **extract_options: Passed to ``extract()``.
 
     Returns:
@@ -134,7 +151,15 @@ def auto_rag(source: Union[str, List[str]],
                   languages=languages,
                   translation_provider=translation_provider,
                   reasoning=reasoning,
-                  reasoning_max_steps=reasoning_max_steps)
+                  reasoning_max_steps=reasoning_max_steps,
+                  # Phase 0 features
+                  hybrid_search=hybrid_search,
+                  auto_query=auto_query,
+                  # Phase 1 features
+                  domain=domain,
+                  # Phase 2 features
+                  query_router=query_router,
+                  context_packer=context_packer)
     
     # Initial ingestion with incremental support
     rag.ingest(source, incremental=incremental, **extract_options)
@@ -190,8 +215,32 @@ class AutoRAG:
                  languages: Optional[List[str]] = None,
                  translation_provider: str = "openai",
                  reasoning: bool = False,
-                 reasoning_max_steps: int = 5):
-        self.embedding_spec = embedding
+                 reasoning_max_steps: int = 5,
+                 # Phase 0 features
+                 hybrid_search: bool = True,
+                 auto_query: bool = True,
+                 # Phase 1 features
+                 domain: Optional[str] = None,
+                 cache_maxsize: int = 500,
+                 # Phase 2 features
+                 query_router: bool = False,
+                 context_packer: Optional[int] = None):
+        # Phase 1: Domain Templates — auto-apply domain-optimized config
+        if domain:
+            dconfig = DomainTemplates.get(domain)
+            if dconfig.chunking:
+                chunking = dconfig.chunking
+            if dconfig.chunk_size:
+                chunk_size = dconfig.chunk_size
+            if dconfig.reranker:
+                reranker = dconfig.reranker
+            if dconfig.embedding:
+                embedding = dconfig.embedding
+
+        # Phase 1: Embedding Auto-Selection — resolve aliases like "fast", "balanced"
+        resolved = resolve_embedding(embedding)
+        
+        self.embedding_spec = resolved
         self.vector_store_type = vector_store
         self.collection_name = collection_name
         self.persist_directory = persist_directory
@@ -333,6 +382,30 @@ class AutoRAG:
                 enable_self_correction=True
             )
             logger.info(f"🧠 Chain-of-Thought reasoning enabled (max_steps={reasoning_max_steps})")
+        
+        # Phase 0: Hybrid Search OOTB
+        self.hybrid_search_enabled = hybrid_search
+        self._corpus: List[str] = []
+        self._hybrid_search_instance = None
+        
+        # Phase 0: Auto Query Rewriter
+        self.auto_query_enabled = auto_query
+        self._query_analyzer = None
+        
+        # Phase 1: Multi-Level Caching (LRU+TTL for embeddings, search, answers)
+        self._rag_cache = RAGCache(maxsize=cache_maxsize)
+        self._domain = domain
+
+        # Phase 2: Query Router — intent classification + filter extraction
+        self.query_router_enabled = query_router
+        self._query_router_v2: Optional[QueryRouterV2] = None
+        if query_router:
+            self._query_router_v2 = QueryRouterV2(llm_complete=None)
+            logger.info("🧭 Query Router enabled: intent classification + filter extraction")
+
+        # Phase 2: Context Packer — token-budget-aware chunk packing
+        self._context_packer = ContextPacker(max_tokens=context_packer or 4000)
+        self._context_max_tokens = context_packer
 
     # ------------------------------------------------------------------
     # Lazy AIProcessor initialisation
@@ -428,8 +501,8 @@ class AutoRAG:
               metadata_filter: Optional[Dict[str, Any]] = None,
               return_citations: bool = True,
               cite: bool = True,
-              hyde: bool = False,
-              multi_query: bool = False,
+              hyde: Optional[bool] = None,
+              multi_query: Optional[bool] = None,
               answer_length: str = "medium",
               # RBAC params
               user: str = "anonymous",
@@ -438,6 +511,8 @@ class AutoRAG:
               reasoning: Optional[bool] = None,
               # Experiment user bucketing
               user_id: Optional[str] = None,
+              # Phase 2 params
+              max_tokens: Optional[int] = None,
               **llm_kwargs) -> RAGResult:
         """End-to-end RAG query with citations and adaptive intelligence.
 
@@ -450,7 +525,7 @@ class AutoRAG:
             hyde: Generate a hypothetical document for retrieval.
             multi_query: Generate 3 query variants and fuse results.
             answer_length: ``"short"``, ``"medium"``, or ``"long"``.
-            **llm_kwargs: Extra kwargs for the LLM call.
+            max_tokens: Token budget for context packing (Phase 2).
 
         Returns:
             RAGResult with answer, citations, confidence, and provenance.
@@ -460,6 +535,29 @@ class AutoRAG:
         # Alias support
         if cite is not None:
             return_citations = cite
+
+        # Phase 2: Query Router — classify intent, extract filters
+        router_intent = None
+        if self._query_router_v2 and metadata_filter is None:
+            try:
+                router_intent = self._query_router_v2.classify(question)
+                extracted_filters = self._query_router_v2.extract_filters(question)
+                if extracted_filters:
+                    metadata_filter = extracted_filters
+                    logger.debug(f"Query Router extracted filters: {extracted_filters}")
+            except Exception as exc:
+                logger.debug(f"Query Router failed: {exc}")
+
+        # Phase 2: Decompose complex queries
+        router_sub_queries = None
+        if self._query_router_v2 and router_intent in (QueryIntent.COMPARATIVE, QueryIntent.ANALYTICAL):
+            try:
+                dq = self._query_router_v2.decompose(question)
+                if len(dq.sub_queries) > 1:
+                    router_sub_queries = dq.sub_queries
+                    logger.debug(f"Query Router decomposed into {len(router_sub_queries)} sub-queries")
+            except Exception as exc:
+                logger.debug(f"Query decomposition failed: {exc}")
         
         # 🚀 Feature 6: Smart Query Routing — delegate to router if configured
         if self._router_v2:
@@ -542,7 +640,14 @@ class AutoRAG:
         
         # 🚀 Feature 1: Adaptive Intelligence - Auto-tune parameters
         if self.intelligence == "adaptive":
-            top_k, hyde, multi_query = self._adapt_retrieval_strategy(question, top_k, hyde, multi_query)
+            top_k, hyde, multi_query = self._adapt_retrieval_strategy(question, top_k, hyde or False, multi_query or False)
+        
+        # Phase 0: Auto Query Rewriter — decide hyde/multi_query when not explicitly set
+        if hyde is None and multi_query is None and self.auto_query_enabled:
+            hyde, multi_query, top_k = self._auto_analyze_query(question, top_k)
+        else:
+            hyde = hyde if hyde is not None else False
+            multi_query = multi_query if multi_query is not None else False
 
         # ---- query expansion ----
         queries = [question]
@@ -556,6 +661,12 @@ class AutoRAG:
                 queries.append(self.ai.hyde(question))
             except Exception as e:
                 logger.debug(f"HyDE failed: {e}")
+
+        # Phase 2: Add decomposed sub-queries from Query Router
+        if router_sub_queries:
+            for sq in router_sub_queries:
+                if sq not in queries:
+                    queries.append(sq)
 
         # ---- retrieve from all query variants ----
         all_chunks: List[ChunkWithScore] = []
@@ -611,6 +722,22 @@ class AutoRAG:
                 roles=roles or [],
                 redact_fields=True
             )
+
+        # Phase 2: Context Packer — fit chunks into token budget
+        context_budget = max_tokens or self._context_max_tokens
+        if context_budget and compressed:
+            try:
+                packed = self._context_packer.pack(
+                    compressed, question,
+                    strategy="sorted",
+                    max_tokens=context_budget,
+                )
+                if packed.chunks_used < len(compressed):
+                    logger.debug(f"ContextPacker: {len(compressed)} → {packed.chunks_used} chunks "
+                                 f"({packed.total_tokens} tokens)")
+                    compressed = compressed[:packed.chunks_used]
+            except Exception as exc:
+                logger.debug(f"ContextPacker failed: {exc}")
 
         # ---- generate answer ----
         max_tokens = llm_kwargs.pop("max_tokens", None)
@@ -729,7 +856,21 @@ class AutoRAG:
             logger.warning("Retriever circuit breaker open, returning empty")
             return []
 
-        query_embedding = self.ai.embed(query)
+        # Phase 1: Multi-Level Cache — check search cache first
+        cache_key = f"search:{query}:{top_k}:{metadata_filter}"
+        cached = self._rag_cache.get_search(query, top_k)
+        if cached is not None:
+            logger.debug(f"RAGCache hit for search: {query[:40]}...")
+            return cached
+
+        # Phase 1: Multi-Level Cache — check embedding cache
+        cached_emb = self._rag_cache.get_embedding(query)
+        if cached_emb is not None:
+            query_embedding = [cached_emb]
+        else:
+            query_embedding = self.ai.embed(query)
+            if query_embedding:
+                self._rag_cache.put_embedding(query, query_embedding[0])
         if not query_embedding:
             return []
 
@@ -771,6 +912,39 @@ class AutoRAG:
             except Exception as exc:
                 logger.debug("Multi-modal search failed: %s", exc)
 
+        # Phase 2: Hybrid Search — adaptive dense + sparse via RRF
+        if self.hybrid_search_enabled and self._corpus:
+            try:
+                from runeextract.rag.hybrid_search import BM25Sparse, HybridSearch
+                # Use adaptive weights based on query analysis
+                hs_analyzer = HybridSearch(
+                    dense_fn=lambda q: query_embedding[0] if query_embedding else [],
+                    chunks=[ChunkWithScore(text=t, score=0.0) for t in self._corpus]
+                )
+                dense_w, sparse_w = hs_analyzer.compute_weights(query)
+                bm25 = BM25Sparse(self._corpus)
+                sparse_scores = [bm25.score(query, i) for i in range(len(self._corpus))]
+                max_sparse = max(sparse_scores) if sparse_scores else 0
+                if max_sparse > 0:
+                    sparse_scores = [s / max_sparse for s in sparse_scores]
+                sparse_chunks = [
+                    ChunkWithScore(
+                        text=self._corpus[i],
+                        score=sparse_scores[i],
+                        source=getattr(c, 'source', '') if i < len(text_chunks) else '',
+                    )
+                    for i in range(len(self._corpus))
+                    if sparse_scores[i] > 0
+                ]
+                if text_chunks and sparse_chunks:
+                    text_chunks = HybridSearch.reciprocal_rank_fusion(
+                        text_chunks, sparse_chunks, top_k=top_k
+                    )
+            except Exception as exc:
+                logger.debug("Hybrid search failed: %s", exc)
+
+        # Phase 1: Multi-Level Cache — store search results
+        self._rag_cache.put_search(query, top_k, text_chunks)
         return text_chunks
 
     def _get_retriever(self) -> Union[ChromaRetriever, FAISSRetriever]:
@@ -823,6 +997,9 @@ class AutoRAG:
             chunk_ids = [getattr(c, 'chunk_id', f"{source}_{i}") for i, c in enumerate(chunks)]
             if source:
                 self._file_chunk_ids.setdefault(source, []).extend(chunk_ids)
+
+            # Phase 0: Maintain corpus for hybrid search
+            self._corpus.extend(c.text for c in chunks)
 
             # Index based on store type
             if self.vector_store_type == "chromadb":
@@ -1238,6 +1415,19 @@ class AutoRAG:
                 self._watcher_thread.join(timeout=5)
             logger.info("🛑 Document watcher stopped")
     
+    # Phase 0: Auto Query Rewriter
+    def _auto_analyze_query(self, question: str, top_k: int) -> tuple:
+        """Use QueryAnalyzer to auto-detect whether to enable HyDE and MultiQuery."""
+        if self._query_analyzer is None:
+            from runeextract.rag.query_analyzer import QueryAnalyzer
+            self._query_analyzer = QueryAnalyzer()
+        analysis = self._query_analyzer.analyze(question)
+        hyde = analysis["recommend_hyde"]
+        multi_query = analysis["recommend_multi_query"]
+        top_k = analysis.get("recommend_top_k", top_k)
+        logger.debug(f"🔍 Auto query: hyde={hyde}, multi={multi_query}, top_k={top_k}")
+        return hyde, multi_query, top_k
+
     # Feature 3: Citation with Provenance
     def _enhance_citations_with_provenance(self, citations: List[Citation], 
                                            chunks: List[ChunkWithScore]) -> List[Citation]:
@@ -1256,6 +1446,9 @@ class AutoRAG:
             if i < len(chunks):
                 citation.retrieval_rank = i + 1
                 citation.similarity_score = chunks[i].score
+                # Phase 0: Source Grounding — propagate character offsets
+                citation.char_start = getattr(chunks[i], 'char_start', None)
+                citation.char_end = getattr(chunks[i], 'char_end', None)
         
         return citations
     
@@ -1343,6 +1536,19 @@ class AutoRAG:
             "watching": self._watcher_running,
         }
         
+        # Phase 1: domain and multi-level cache stats
+        if self._domain:
+            stats["domain"] = self._domain
+        
+        stats["rag_cache"] = {
+            "embedding_cache_size": len(self._rag_cache.embedding_cache),
+            "search_cache_size": len(self._rag_cache.search_cache),
+        }
+
+        # Phase 2: query router stats
+        stats["query_router_enabled"] = self.query_router_enabled
+        stats["context_max_tokens"] = self._context_max_tokens
+        
         # 🚀 Add Tier 1 feature stats
         if self._semantic_cache:
             cache_stats = self._semantic_cache.stats()
@@ -1355,11 +1561,17 @@ class AutoRAG:
         return stats
     
     def cache_stats(self) -> Dict[str, Any]:
-        """Get semantic cache statistics."""
-        if not self._semantic_cache:
-            return {"enabled": False}
-        
-        return self._semantic_cache.stats().to_dict()
+        """Get cache statistics (semantic + multi-level)."""
+        stats = {}
+        if self._semantic_cache:
+            stats["semantic_cache"] = self._semantic_cache.stats().to_dict()
+        else:
+            stats["semantic_cache"] = {"enabled": False}
+        stats["rag_cache"] = {
+            "embedding_cache_size": len(self._rag_cache.embedding_cache),
+            "search_cache_size": len(self._rag_cache.search_cache),
+        }
+        return stats
     
     def get_analytics(self) -> Optional[RAGAnalytics]:
         """Get analytics instance for advanced querying."""

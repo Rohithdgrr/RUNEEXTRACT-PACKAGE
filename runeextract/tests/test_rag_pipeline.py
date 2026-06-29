@@ -14,6 +14,10 @@ from runeextract.rag.types import RAGResult, Citation, ChunkWithScore
 from runeextract.rag.compressor import ContextualCompressor
 from runeextract.rag.evaluate import RAGEvaluator
 from runeextract.models.document import Document
+from runeextract.rag.auto_pipeline import auto_rag
+from runeextract.rag.query_analyzer import QueryAnalyzer
+from runeextract.rag.query_router import QueryRouter as QueryRouterV2, QueryIntent
+from runeextract.rag.context_packer import ContextPacker, PackedContext
 
 
 # ---------------------------------------------------------------------------
@@ -952,3 +956,293 @@ class TestAutoRAGAPIServer:
             with patch("runeextract.rag.auto_pipeline.logger") as mock_log:
                 rag.serve(host="127.0.0.1", port=9999)
                 assert mock_log.error.called
+
+
+# ── Phase 0: Source Grounding ─────────────────────────
+
+class TestSourceGrounding:
+    def test_chunk_with_score_has_char_fields(self):
+        cws = ChunkWithScore(text="hello", score=0.9, char_start=0, char_end=5)
+        assert cws.char_start == 0
+        assert cws.char_end == 5
+
+    def test_citation_has_char_fields(self):
+        cit = Citation(text="hello", source="test.md", char_start=0, char_end=5)
+        assert cit.char_start == 0
+        assert cit.char_end == 5
+
+    def test_retriever_extracts_char_offsets_from_metadata(self):
+        """ChromaRetriever._results_to_chunks extracts start_index/end_index from metadata."""
+        from runeextract.rag.retriever import ChromaRetriever
+        retriever = ChromaRetriever()
+        mock_results = {
+            "ids": [["chunk1"]],
+            "documents": [["hello world"]],
+            "metadatas": [[{"start_index": 0, "end_index": 11, "source": "test.md"}]],
+            "distances": [[0.1]],
+        }
+        chunks = retriever._results_to_chunks(mock_results)
+        assert len(chunks) == 1
+        assert chunks[0].char_start == 0
+        assert chunks[0].char_end == 11
+
+    def test_retriever_missing_metadata(self):
+        from runeextract.rag.retriever import ChromaRetriever
+        retriever = ChromaRetriever()
+        mock_results = {
+            "ids": [["chunk1"]],
+            "documents": [["hello"]],
+            "metadatas": [[{}]],
+            "distances": [[0.1]],
+        }
+        chunks = retriever._results_to_chunks(mock_results)
+        assert chunks[0].char_start is None
+        assert chunks[0].char_end is None
+
+    def test_enhance_citations_propagates_char_offsets(self):
+        rag = AutoRAG()
+        chunks = [
+            ChunkWithScore(text="test", score=0.9, source="doc.md",
+                           char_start=0, char_end=10),
+        ]
+        citations = [Citation(text="test", source="doc.md")]
+        enhanced = rag._enhance_citations_with_provenance(citations, chunks)
+        assert enhanced[0].char_start == 0
+        assert enhanced[0].char_end == 10
+
+    def test_auto_rag_factory_passes_hybrid_search(self):
+        rag = auto_rag.__wrapped__ if hasattr(auto_rag, '__wrapped__') else auto_rag
+        with patch("runeextract.rag.auto_pipeline.AutoRAG") as MockRAG:
+            instance = MockRAG.return_value
+            rag("test.md", hybrid_search=False)
+            assert MockRAG.called
+            _, kwargs = MockRAG.call_args
+            assert kwargs["hybrid_search"] is False
+
+
+# ── Phase 0: Hybrid Search OOTB ────────────────────────
+
+class TestHybridSearchOOTB:
+    def test_hybrid_search_enabled_by_default(self):
+        rag = AutoRAG()
+        assert rag.hybrid_search_enabled is True
+
+    def test_hybrid_search_disabled(self):
+        rag = AutoRAG(hybrid_search=False)
+        assert rag.hybrid_search_enabled is False
+
+    def test_hybrid_search_corpus_accumulates(self):
+        rag = AutoRAG(hybrid_search=True)
+        rag._corpus.extend(["chunk one text", "chunk two text"])
+        assert len(rag._corpus) == 2
+
+    def test_corpus_populated_during_ingest(self, md_file):
+        rag = AutoRAG(hybrid_search=True)
+        with patch.object(rag, '_chunk_and_index') as mock_index:
+            def _fake_index(docs):
+                rag._corpus.append("fake chunk text")
+            mock_index.side_effect = _fake_index
+            rag.ingest(md_file)
+        assert len(rag._corpus) > 0
+
+
+# ── Phase 0: Auto Query Rewriter ───────────────────────
+
+class TestQueryAnalyzer:
+    def test_factual_query(self):
+        analyzer = QueryAnalyzer()
+        result = analyzer.analyze("What is the capital of France?")
+        assert result["question_type"] == "factual"
+        assert isinstance(result["recommend_hyde"], bool)
+        assert isinstance(result["recommend_multi_query"], bool)
+        assert result["recommend_top_k"] >= 3
+
+    def test_analytical_query(self):
+        analyzer = QueryAnalyzer()
+        result = analyzer.analyze("Why did the experiment fail?")
+        assert result["question_type"] == "analytical"
+        assert result["recommend_hyde"] is True
+        assert result["recommend_multi_query"] is True
+        assert result["recommend_top_k"] >= 5
+
+    def test_comparative_query(self):
+        analyzer = QueryAnalyzer()
+        result = analyzer.analyze("Compare Python and Java for web development")
+        assert result["question_type"] == "comparative"
+        assert result["recommend_top_k"] >= 8
+
+    def test_short_keyword_query(self):
+        analyzer = QueryAnalyzer()
+        result = analyzer.analyze("Python")
+        assert result["question_type"] == "keyword"
+        assert result["recommend_hyde"] is True
+        assert result["recommend_top_k"] <= 4
+
+    def test_auto_query_enabled_by_default(self):
+        rag = AutoRAG()
+        assert rag.auto_query_enabled is True
+
+    def test_auto_query_disabled(self):
+        rag = AutoRAG(auto_query=False)
+        assert rag.auto_query_enabled is False
+
+    def test_auto_query_analytical_enables_hyde_and_multi(self):
+        rag = AutoRAG(auto_query=True)
+        hyde, multi, top_k = rag._auto_analyze_query("Why did the test fail?", 5)
+        assert hyde is True
+        assert multi is True
+        assert top_k >= 5
+
+    def test_auto_query_factual_keeps_simple(self):
+        rag = AutoRAG(auto_query=True)
+        hyde, multi, top_k = rag._auto_analyze_query("What is 2+2?", 5)
+        assert top_k <= 5
+
+
+# ── Phase 1: Domain Templates integration ────────────────
+
+class TestPhase1DomainIntegration:
+    def test_auto_rag_with_domain_financial(self):
+        from runeextract.rag.templates import DomainTemplates
+        rag = AutoRAG(domain="financial")
+        assert rag._domain == "financial"
+        config = DomainTemplates.get("financial")
+        if config.reranker:
+            assert rag.reranker_spec == config.reranker
+
+    def test_auto_rag_with_domain_unknown(self):
+        rag = AutoRAG(domain="nonexistent")
+        assert rag._domain == "nonexistent"
+        assert rag.chunking_mode == "auto"
+
+    def test_auto_rag_factory_passes_domain(self):
+        rag = AutoRAG(domain="academic")
+        assert rag._domain == "academic"
+
+
+# ── Phase 1: Embedding Auto-Selection integration ────────
+
+class TestPhase1EmbeddingIntegration:
+    def test_auto_rag_resolves_fast_embedding(self):
+        rag = AutoRAG(embedding="fast")
+        assert rag.embedding_spec == "openai:text-embedding-3-small"
+
+    def test_auto_rag_resolves_balanced_embedding(self):
+        rag = AutoRAG(embedding="balanced")
+        assert rag.embedding_spec == "openai:text-embedding-3-large"
+
+    def test_auto_rag_passthrough_custom_embedding(self):
+        rag = AutoRAG(embedding="custom:my-model")
+        assert rag.embedding_spec == "custom:my-model"
+
+
+# ── Phase 1: RAGCache integration ────────────────────────
+
+class TestPhase1CacheIntegration:
+    def test_rag_cache_initialized(self):
+        rag = AutoRAG()
+        assert rag._rag_cache is not None
+
+    def test_rag_cache_caches_embeddings(self):
+        rag = AutoRAG()
+        rag._rag_cache.put_embedding("hello", [0.1, 0.2, 0.3])
+        result = rag._rag_cache.get_embedding("hello")
+        assert result == [0.1, 0.2, 0.3]
+
+    def test_rag_cache_caches_search(self):
+        from runeextract.rag.types import ChunkWithScore
+        rag = AutoRAG()
+        chunks = [ChunkWithScore(text="test", score=0.9)]
+        rag._rag_cache.put_search("query", 5, chunks)
+        cached = rag._rag_cache.get_search("query", 5)
+        assert cached is not None
+        assert len(cached) == 1
+
+    def test_cache_stats_in_get_stats(self):
+        rag = AutoRAG()
+        stats = rag.get_stats()
+        assert "rag_cache" in stats
+        assert "embedding_cache_size" in stats["rag_cache"]
+
+    def test_cache_stats_method(self):
+        rag = AutoRAG()
+        stats = rag.cache_stats()
+        assert "rag_cache" in stats
+        assert "semantic_cache" in stats
+
+
+# ── Phase 2: Query Router integration ────────────────────
+
+class TestPhase2QueryRouter:
+    def test_query_router_disabled_by_default(self):
+        rag = AutoRAG()
+        assert rag._query_router_v2 is None
+
+    def test_query_router_enabled(self):
+        rag = AutoRAG(query_router=True)
+        assert rag._query_router_v2 is not None
+
+    def test_query_router_classifies_comparative(self):
+        router = QueryRouterV2()
+        intent = router.classify("Compare Python and Java")
+        assert intent == QueryIntent.COMPARATIVE
+
+    def test_query_router_classifies_analytical(self):
+        router = QueryRouterV2()
+        intent = router.classify("Why did revenue decline?")
+        assert intent == QueryIntent.ANALYTICAL
+
+    def test_query_router_classifies_factual(self):
+        router = QueryRouterV2()
+        intent = router.classify("What is the capital of France?")
+        assert intent == QueryIntent.FACTUAL
+
+    def test_query_router_extracts_year_filter(self):
+        router = QueryRouterV2()
+        filters = router.extract_filters("revenue in 2024")
+        assert filters.get("year") == "2024"
+
+    def test_query_router_decompose_rule_based(self):
+        router = QueryRouterV2()
+        dq = router.decompose("Compare Q1 and Q2 revenue")
+        assert dq.intent == QueryIntent.COMPARATIVE
+        assert len(dq.sub_queries) >= 1
+
+    def test_query_router_in_get_stats(self):
+        rag = AutoRAG(query_router=True)
+        stats = rag.get_stats()
+        assert stats.get("query_router_enabled") is True
+
+
+# ── Phase 2: ContextPacker integration ───────────────────
+
+class TestPhase2ContextPacker:
+    def test_context_packer_initialized(self):
+        rag = AutoRAG()
+        assert rag._context_packer is not None
+
+    def test_context_packer_sorted_strategy(self):
+        from runeextract.rag.types import ChunkWithScore
+        packer = ContextPacker(max_tokens=100)
+        chunks = [
+            ChunkWithScore(text="A" * 100, score=0.9, source="s1"),
+            ChunkWithScore(text="B" * 100, score=0.5, source="s1"),
+            ChunkWithScore(text="C" * 100, score=0.3, source="s1"),
+        ]
+        packed = packer.pack(chunks, "test query", strategy="sorted")
+        assert packed.chunks_used <= 3
+        assert packed.total_tokens > 0
+
+    def test_packed_context_dataclass(self):
+        ctx = PackedContext(text="hello", chunks_used=1, total_tokens=5, strategy="sorted")
+        assert ctx.text == "hello"
+        assert ctx.total_tokens == 5
+
+    def test_context_packer_with_custom_max_tokens(self):
+        rag = AutoRAG(context_packer=2000)
+        assert rag._context_max_tokens == 2000
+
+    def test_stats_include_context_max_tokens(self):
+        rag = AutoRAG(context_packer=3000)
+        stats = rag.get_stats()
+        assert stats.get("context_max_tokens") == 3000

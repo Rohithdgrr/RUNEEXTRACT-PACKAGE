@@ -1,6 +1,13 @@
-# 🚀 14 Game-Changing Features - Implementation Status
+# 🚀 RuneExtract Feature Implementation Status
 
-## ✅ COMPLETE: ALL 14 FEATURES IMPLEMENTED! 🎉
+## ✅ v0.8.0: Phase 1.5 + Phase 0 + Phase 1 + Phase 2
+- **Phase 1.5 (Ecosystem)**: MCP Server CLI, LangGraph/OpenAI SDK/PydanticAI tools, Parent-Child Chunking
+- **Phase 0 (Foundation)**: Source Grounding Engine, Hybrid Search OOTB, Auto Query Rewriter
+- **Phase 1 (Quality & Trust)**: Domain Templates, Embedding Auto-Selection, Multi-Level Caching (wired into AutoRAG)
+- **Phase 2 (Growth)**: Query Router (intent classify + decompose), Adaptive Hybrid Search weights, Context Packer
+- **937+ tests passing**
+
+## ✅ v0.7.0: Tier 2 — 14 Game-Changing Features
 
 ### **Implementation Progress: 14/14 (100%)**
 

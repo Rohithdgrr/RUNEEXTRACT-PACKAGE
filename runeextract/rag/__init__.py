@@ -39,6 +39,8 @@ from runeextract.rag.streaming import StreamingRAG, StreamEvent, StreamEventType
 from runeextract.rag.api_server import RAGAPIServer
 # 🚀 Feature 14: Chain-of-Thought Reasoning
 from runeextract.rag.reasoning import ChainOfThoughtReasoner, ReasoningStep, ReasoningTrace
+# Phase 0: Auto Query Rewriter
+from runeextract.rag.query_analyzer import QueryAnalyzer
 
 __all__ = [
     "AutoRAG",
@@ -109,4 +111,6 @@ __all__ = [
     "ChainOfThoughtReasoner",
     "ReasoningStep",
     "ReasoningTrace",
+    # Phase 0
+    "QueryAnalyzer",
 ]

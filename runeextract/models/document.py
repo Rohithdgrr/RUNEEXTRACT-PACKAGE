@@ -81,11 +81,7 @@ class Document:
         elif strategy == ChunkingStrategy.SENTENCE_WINDOW:
             self._chunks = chunk_sentence_window(self.text, size, overlap)
         elif strategy == ChunkingStrategy.HIERARCHICAL:
-            leaf_size = kwargs.get("leaf_size", 300)
-            self._chunks = chunk_sentence_window(self.text, leaf_size, overlap=0)
-            for c in self._chunks:
-                c.metadata["strategy"] = "hierarchical"
-                c.metadata["level"] = 0
+            self._chunks = self._build_hierarchical_chunks(**kwargs)
         else:
             raise ValueError(f"Unknown chunking strategy: {strategy}")
 
@@ -96,6 +92,159 @@ class Document:
             for chunk in self._chunks:
                 on_chunk(chunk)
 
+        return self._chunks
+
+    def _build_hierarchical_chunks(
+        self,
+        child_size: int = 300,
+        parent_size: int = 1500,
+        parent_overlap: int = 100,
+        child_strategy: str = "fixed_size",
+        parent_strategy: str = "fixed_size",
+        leaf_size: Optional[int] = None,
+    ) -> List[Chunk]:
+        if leaf_size is not None:
+            child_size = leaf_size
+        """Build parent-child hierarchical chunks for RAPTOR-style retrieval.
+
+        Creates two levels:
+        - Level 1 (parents): larger chunks for full context
+        - Level 0 (children): smaller chunks within each parent for precise retrieval
+
+        Each child chunk has ``parent_chunk_id`` set to its parent's ``chunk_id``.
+        Both levels are returned in a flat list.
+
+        Args:
+            child_size: Character size for child (leaf) chunks.
+            parent_size: Character size for parent chunks.
+            parent_overlap: Overlap between parent chunks.
+            child_strategy: Chunking strategy for children (fixed_size, sentence_window, etc.).
+            parent_strategy: Chunking strategy for parents (fixed_size, by_heading, etc.).
+
+        Returns:
+            Flat list of Chunk objects at both child and parent levels.
+        """
+        from copy import deepcopy
+
+        text = self.text
+        if not text:
+            return []
+
+        parent_chunks = self._chunk_simple(text, parent_strategy, parent_size, parent_overlap, "hierarchical_parent")
+        result: List[Chunk] = []
+        parent_id_map: Dict[str, int] = {}
+
+        for p_idx, parent_chunk in enumerate(parent_chunks):
+            parent_id = f"parent_{p_idx}"
+            parent_chunk.chunk_id = parent_id
+            parent_chunk.metadata["strategy"] = "hierarchical"
+            parent_chunk.metadata["level"] = 1
+            parent_chunk.parent_chunk_id = None
+            result.append(parent_chunk)
+
+            child_text = parent_chunk.text
+            children = self._chunk_simple(child_text, child_strategy, child_size, 0, "hierarchical_child")
+            for c_idx, child in enumerate(children):
+                child.chunk_id = f"child_{p_idx}_{c_idx}"
+                child.metadata["strategy"] = "hierarchical"
+                child.metadata["level"] = 0
+                child.parent_chunk_id = parent_id
+                child.parent_document_id = self.document_id
+                result.append(child)
+
+        return result
+
+    @staticmethod
+    def _chunk_simple(
+        text: str,
+        strategy: str,
+        size: int,
+        overlap: int,
+        label: str,
+    ) -> List[Chunk]:
+        """Simple chunking helper used internally for hierarchical levels."""
+        if not text:
+            return []
+        chunks = []
+        start = 0
+        chunk_id = 0
+        if strategy == "by_heading":
+            heading_pattern = re.compile(r'^(#{1,6}\s+.*)$|^(.+)\n[=\-]+\s*$', re.MULTILINE)
+            matches = list(heading_pattern.finditer(text))
+            prev_end = 0
+            for match in matches:
+                if match.start() > prev_end:
+                    chunk_text = text[prev_end:match.start()].strip()
+                    if chunk_text:
+                        chunks.append(Chunk(
+                            text=chunk_text,
+                            chunk_id=f"tmp_{chunk_id}",
+                            start_index=prev_end,
+                            end_index=match.start(),
+                            metadata={"strategy": label},
+                        ))
+                        chunk_id += 1
+                prev_end = match.end()
+            if prev_end < len(text):
+                remaining = text[prev_end:].strip()
+                if remaining:
+                    chunks.append(Chunk(
+                        text=remaining,
+                        chunk_id=f"tmp_{chunk_id}",
+                        start_index=prev_end,
+                        end_index=len(text),
+                        metadata={"strategy": label},
+                    ))
+            return chunks
+
+        while start < len(text):
+            end = min(start + size, len(text))
+            chunk_text = text[start:end]
+            chunks.append(Chunk(
+                text=chunk_text,
+                chunk_id=f"tmp_{chunk_id}",
+                start_index=start,
+                end_index=end,
+                metadata={"strategy": label},
+            ))
+            step = max(size - overlap, 1)
+            start += step
+            chunk_id += 1
+        return chunks
+
+    def hierarchical_chunks(
+        self,
+        child_size: int = 300,
+        parent_size: int = 1500,
+        parent_overlap: int = 100,
+        child_strategy: str = "fixed_size",
+        parent_strategy: str = "fixed_size",
+    ) -> List[Chunk]:
+        """Build parent-child hierarchical chunks explicitly (aliases ``chunks(HIERARCHICAL)``).
+
+        Returns a flat list containing both parent (level 1) and child (level 0)
+        chunks. Child chunks have ``parent_chunk_id`` set.
+
+        Useful for RAPTOR-style retrieval where you search children but return
+        parent context.
+
+        Args:
+            child_size: Character size for child (leaf) chunks (default 300).
+            parent_size: Character size for parent chunks (default 1500).
+            parent_overlap: Overlap between parent chunks (default 100).
+            child_strategy: Chunking strategy for children (default "fixed_size").
+            parent_strategy: Chunking strategy for parents (default "fixed_size").
+
+        Returns:
+            Flat list of Chunk objects.
+        """
+        self._chunks = self._build_hierarchical_chunks(
+            child_size=child_size,
+            parent_size=parent_size,
+            parent_overlap=parent_overlap,
+            child_strategy=child_strategy,
+            parent_strategy=parent_strategy,
+        )
         return self._chunks
 
     @staticmethod
@@ -214,6 +363,7 @@ class Document:
                     "start_index": chunk.start_index,
                     "end_index": chunk.end_index,
                     "token_count": chunk.token_count(),
+                    "parent_chunk_id": chunk.parent_chunk_id,
                     "metadata": chunk.metadata
                 }
                 for chunk in (self._chunks or [])
@@ -321,6 +471,8 @@ class Document:
             "source_type": self.source_type,
             "document_id": self.document_id,
             "chunk_id": chunk.chunk_id,
+            "start_index": chunk.start_index,
+            "end_index": chunk.end_index,
             **chunk.metadata,
         } for chunk in self._chunks]
         if upsert:
@@ -358,6 +510,8 @@ class Document:
             "source_type": self.source_type,
             "document_id": self.document_id,
             "chunk_id": chunk.chunk_id,
+            "start_index": chunk.start_index,
+            "end_index": chunk.end_index,
             **chunk.metadata,
         } for chunk in self._chunks]
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "runeextract"
-version = "0.7.0"
+version = "0.8.0"
 description = "One extraction API for every document type — lightweight, zero heavy default deps"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -76,13 +76,15 @@ structured = ["pydantic>=2.0.0,<3.0.0"]
 protected = ["msoffcrypto-tool>=5.0.0,<6.0.0"]
 # WebSocket server
 server = ["websockets>=12.0.0,<14.0.0"]
+# Agent / MCP
+mcp = ["mcp>=1.0.0,<2.0.0"]
 # Heavy / optional format support (moved out of core)
 dataframe = ["pandas>=2.0.0,<3.0.0"]
 xml = ["lxml>=4.9.0,<6.0.0"]
 pdf-alt = ["pdfplumber>=0.10.0,<1.0.0"]
 # Meta extras
 all = [
-    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,rag,embeddings,vector-stores,audio,video,structured,protected,server,dataframe,xml,pdf-alt]",
+    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,rag,embeddings,vector-stores,audio,video,structured,protected,server,mcp,dataframe,xml,pdf-alt]",
 ]
 auto-rag = ["runeextract[rag,embeddings,vector-stores]"]
 dev = [
@@ -99,6 +101,7 @@ Issues = "https://github.com/Rohithdgrr/RUNEEXTRACT-PACKAGE/issues"
 
 [project.scripts]
 runeextract = "runeextract.cli.main:main"
+runeextract-mcp = "runeextract.agent.mcp_server:main_cli"
 
 [project.entry-points."runeextract.extractors"]
 pdf = "runeextract.extractors.pdf.extractor:PDFExtractor"

@@ -78,6 +78,31 @@ class Chunk:
     end_index: int
     metadata: Dict[str, Any] = field(default_factory=dict)
     parent_document_id: Optional[str] = None
+    parent_chunk_id: Optional[str] = None
+
+    def token_count(self, encoding_name: str = "cl100k_base") -> int:
+        enc = _get_token_encoding(encoding_name)
+        if enc:
+            return len(enc.encode(self.text))
+        return _estimate_token_count(self.text)
+
+    def is_child(self) -> bool:
+        """Whether this chunk has a parent chunk (level 0 in hierarchy)."""
+        return self.parent_chunk_id is not None
+
+    def is_parent(self) -> bool:
+        """Whether this chunk serves as a parent in a hierarchy (level 1)."""
+        return self.metadata.get("level") == 1
+
+
+@dataclass
+class HierarchicalChunk(Chunk):
+    """A chunk that belongs to a parent-child hierarchy.
+
+    Extends Chunk with level metadata and a reference to children.
+    """
+    level: int = 0
+    children: List[str] = field(default_factory=list)
 
     def token_count(self, encoding_name: str = "cl100k_base") -> int:
         enc = _get_token_encoding(encoding_name)

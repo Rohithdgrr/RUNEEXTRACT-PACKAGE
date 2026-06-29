@@ -81,6 +81,8 @@ class ChromaRetriever:
                 chunk_id=meta.get("chunk_id", doc_id),
                 page=meta.get("page"),
                 metadata=meta,
+                char_start=meta.get("start_index"),
+                char_end=meta.get("end_index"),
             ))
         return chunks
 
@@ -187,5 +189,7 @@ class FAISSRetriever:
                 chunk_id=meta.get("chunk_id", ""),
                 page=meta.get("page"),
                 metadata=meta,
+                char_start=meta.get("start_index"),
+                char_end=meta.get("end_index"),
             ))
         return chunks

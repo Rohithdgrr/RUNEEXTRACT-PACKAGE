@@ -283,9 +283,20 @@ result = rag.query("Summarize.", answer_length="short")  # "short" | "medium" | 
 result = rag.query("Key points?", max_tokens=2000)
 ```
 
-### Domain Templates (Phase 1)
+### Domain Templates (Phase 1, wired into AutoRAG v0.8.0+)
 
-Pre-configured settings for common document types:
+Pre-configured settings for common document types — **now wired directly into `auto_rag()`**:
+
+```python
+# Auto-applies domain-optimized chunking, embedding, reranker
+rag = auto_rag("report.pdf", domain="financial")
+
+# Or via AutoRAG directly
+rag = AutoRAG(domain="medical")
+rag.ingest("clinical_trial.pdf")
+```
+
+Manual access still available:
 
 ```python
 from runeextract.rag import DomainTemplates, DomainConfig
@@ -301,32 +312,26 @@ DomainTemplates.register("custom", DomainConfig(
     chunking="fixed_size", chunk_size=500,
     reranker="cross-encoder/ms-marco-MiniLM-L-6-v2",
 ))
-
-# List all registered
-all_templates = DomainTemplates.list()
 ```
 
-Used automatically when passing `domain=` to `instant_rag()`.
+Because `resolve_embedding()` is called in `AutoRAG.__init__()`, passing `embedding="fast"` or `embedding="balanced"` is automatically resolved to the concrete model string.
 
-### Embedding Auto-Selection (Phase 1)
+### Multi-Level Caching (Phase 1, wired into AutoRAG v0.8.0+)
 
-Maps quality levels to concrete embedding models:
+Three LRU+TTL cache levels for embeddings, search results, and answers — **automatically used inside AutoRAG**:
 
 ```python
-from runeextract.rag import resolve_embedding, get_domain_embedding
+# AutoRAG uses RAGCache internally for:
+#   - Embedding caching (avoids re-embedding repeated queries)
+#   - Search result caching (avoids re-querying vector store)
+rag = AutoRAG(cache_maxsize=500)  # default
 
-resolve_embedding("fast")       # → "openai:text-embedding-3-small"
-resolve_embedding("balanced")   # → "openai:text-embedding-3-large"
-resolve_embedding("accurate")   # → "openai:text-embedding-3-large"
-resolve_embedding("custom:model")  # passthrough
-
-# Domain-aware
-get_domain_embedding("medical")  # → "openai:text-embedding-3-large"
+# Check cache stats
+stats = rag.cache_stats()
+print(stats["rag_cache"]["embedding_cache_size"])
 ```
 
-### Multi-Level Caching (Phase 1)
-
-Three LRU+TTL cache levels — zero deps:
+Standalone usage:
 
 ```python
 from runeextract.rag import RAGCache
@@ -347,90 +352,134 @@ ans = cache.get_answer("question?")
 
 # Clear all
 cache.invalidate()
-
-# Context-manager auto-clears on exit
-with RAGCache() as c:
-    c.put_embedding("x", [0.5])
 ```
 
-### Query Router (Phase 2)
+### Query Router (Phase 2, wired into AutoRAG v0.8.0+)
 
-Classifies intent, extracts metadata filters, decomposes complex queries:
+Classifies intent, extracts metadata filters, and decomposes complex queries — **now wired into AutoRAG**:
 
 ```python
-from runeextract.rag import QueryRouter
+# Enable in AutoRAG — auto-classifies queries, extracts metadata filters
+rag = AutoRAG(query_router=True)
+result = rag.query("revenue in 2024")  # auto-extracts {"year": "2024"}
+
+# Comparative/analytical queries are auto-decomposed into sub-queries
+rag = AutoRAG(query_router=True)
+result = rag.query("Compare Q1 and Q2 results")
+# → runs sub-queries ["What is Q1 revenue?", "What is Q2 revenue?"]
+# → fuses retrieval results
+```
+
+Standalone usage:
+
+```python
+from runeextract.rag import QueryRouter, QueryIntent
 
 router = QueryRouter()
 
 # Intent classification
-intent = router.classify("Compare Q1 and Q2 results")
-# → QueryIntent.COMPARATIVE
-
-intent = router.classify("Why did revenue decline?")
-# → QueryIntent.ANALYTICAL
+intent = router.classify("Compare Q1 and Q2 results")  # QueryIntent.COMPARATIVE
+intent = router.classify("Why did revenue decline?")    # QueryIntent.ANALYTICAL
 
 # Metadata filter extraction
-filters = router.extract_filters("revenue in 2024")
-# → {"year": "2024"}
+filters = router.extract_filters("revenue in 2024")    # {"year": "2024"}
+filters = router.extract_filters('results by "John Smith"')  # {"author": "John Smith"}
 
-filters = router.extract_filters('results by "John Smith"')
-# → {"author": "John Smith"}
-
-# Full decomposition (with LLM when available)
-from runeextract.processors.ai import AIProcessor
-ai = AIProcessor()
-router = QueryRouter(llm_complete=ai._call)
-
+# Full decomposition
 dq = router.decompose("Compare Q1 and Q2 revenue")
-print(dq.intent)         # QueryIntent.COMPARATIVE
-print(dq.sub_queries)    # ["What is Q1 revenue?", "What is Q2 revenue?"]
-print(dq.metadata_filter)  # {}
+print(dq.intent, dq.sub_queries, dq.metadata_filter)
 ```
 
-### Hybrid Search (Phase 2)
+### Source Grounding (v0.8.0+)
 
-Adaptive dense + sparse retrieval with zero-dependency BM25:
+Every chunk and citation carries character offsets:
+
+```python
+result = rag.query("What is the conclusion?")
+for c in result.citations:
+    print(f"  chars {c.char_start}-{c.char_end}: {c.text[:50]}...")
+```
+
+The chain: **Chunk.start_index → ChromaDB metadata → ChunkWithScore.char_start → Citation.char_start**.
+
+### Hybrid Search (OOTB, v0.8.0+)
+
+Hybrid search (Dense + BM25 with Reciprocal Rank Fusion) is **enabled by default**:
+
+```python
+rag = AutoRAG()  # hybrid_search=True by default
+result = rag.query("machine learning")
+```
+
+BM25 is computed against all indexed chunks and fused with dense vector scores via RRF. Disable with `AutoRAG(hybrid_search=False)`.
+
+### Auto Query Rewriter (v0.8.0+)
+
+The `QueryAnalyzer` automatically detects question type and enables HyDE + MultiQuery:
+
+```python
+rag = AutoRAG()  # auto_query=True by default
+# Analytical questions auto-enable HyDE + MultiQuery
+result = rag.query("Why did the experiment fail?")
+
+# Simple factual queries skip expansion
+result = rag.query("What is the capital of France?")
+```
+
+You can still override manually:
+
+```python
+result = rag.query("question", hyde=True, multi_query=False)
+```
+
+### Hybrid Search (Phase 2, wired into AutoRAG v0.8.0+)
+
+Adaptive dense + sparse retrieval with zero-dependency BM25 — **weights are now automatically tuned based on query analysis** via `HybridSearch.compute_weights()`:
+
+```python
+# In AutoRAG, hybrid search uses adaptive weights internally
+rag = AutoRAG(hybrid_search=True)  # default
+result = rag.query("What is Q1 revenue by region?")
+# → adaptive dense/sparse weighting based on query lexical density
+```
+
+Standalone usage:
 
 ```python
 from runeextract.rag import HybridSearch, ChunkWithScore
 
-chunks = [ChunkWithScore(text="doc text", score=0.5)]
 hs = HybridSearch(dense_fn=lambda q: [0.1, 0.2] * 128, chunks=chunks)
 
 # Adaptive weights based on query analysis
 result = hs.search("What is Q1 revenue by region?", top_k=5)
-print(result.dense_weight)     # e.g. 0.4
-print(result.sparse_weight)    # e.g. 0.6
-print(result.query_analysis)   # {"lexical_density": ..., "term_count": ...}
-
-# Reciprocal Rank Fusion
-fused = HybridSearch.reciprocal_rank_fusion(dense_results, sparse_results, top_k=5)
+print(result.dense_weight, result.sparse_weight)  # e.g. 0.4, 0.6
+print(result.query_analysis)  # {"lexical_density": ..., "term_count": ...}
 ```
 
-### Context Packer (Phase 2)
+### Context Packer (Phase 2, wired into AutoRAG v0.8.0+)
 
-Intelligently fits chunks into an LLM's token budget:
+Intelligently fits chunks into an LLM's token budget — **pass `max_tokens` directly to `rag.query()`**:
+
+```python
+rag = AutoRAG()
+result = rag.query("Summarize the report", max_tokens=2000)
+# → chunks are packed into ~2000 token budget before LLM call
+```
+
+Standalone usage:
 
 ```python
 from runeextract.rag import ContextPacker
 
 packer = ContextPacker(max_tokens=2000)
 
-# Strategy: "sorted" | "compressed" | "structured"
-packed = packer.pack(chunks, "What is revenue?", strategy="sorted")
-print(packed.text)          # packed context string
-print(packed.chunks_used)   # number of chunks included
-print(packed.total_tokens)  # estimated tokens consumed
-print(packed.strategy)      # "sorted"
+# Strategies: "sorted" | "compressed" | "structured"
+packed = packer.pack(chunks, query="What is revenue?", strategy="sorted")
+print(packed.text, packed.chunks_used, packed.total_tokens)
 
-# "compressed" summarises low-score chunks
-packed = packer.pack(chunks, query, strategy="compressed")
-
-# "structured" groups by source, interleaves by relevance
-packed = packer.pack(chunks, query, strategy="structured")
+packed = packer.pack(chunks, query, strategy="compressed")   # summarise low-score
+packed = packer.pack(chunks, query, strategy="structured")   # group by source
 ```
-
-Pass `max_tokens=2000` to `rag.query()` to use it automatically.
 
 ### RobustRAG with Fallbacks (Phase 4)
 

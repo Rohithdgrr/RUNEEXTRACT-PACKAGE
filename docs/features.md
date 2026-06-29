@@ -95,6 +95,42 @@
 | 13 | **RAG-as-a-Service API** | FastAPI REST API with auth, rate limiting, streaming, metrics | `rag.create_api_server()` / `rag.serve()` |
 | 14 | **Chain-of-Thought** | Multi-step reasoning, decomposition, self-correction | `auto_rag(..., reasoning=True)` |
 
+## v0.8.0 New Features
+
+### Phase 1.5: Ecosystem
+
+| Feature | Description | Usage |
+|---------|-------------|-------|
+| **MCP Server CLI** | Model Context Protocol server for Claude Desktop + agent frameworks | `runeextract-mcp` or `extract(...mcp_server=True)` |
+| **LangGraph Integration** | `RuneExtractGraphTool`, `RuneExtractSearchTool`, `RuneExtractAskTool` | `from runeextract.agent import RuneExtractGraphTool` |
+| **OpenAI Agents SDK** | Function tool for the OpenAI Agents SDK | `from runeextract.agent import rune_extract_function_tool` |
+| **PydanticAI Integration** | `RuneExtractAITool`, `RuneExtractSearchAITool` | `from runeextract.agent import RuneExtractAITool` |
+| **Parent-Child Chunking** | RAPTOR-style hierarchical chunks with parent links | `doc.hierarchical_chunks(child_size=300, parent_size=1500)` |
+
+### Phase 0: Foundation
+
+| Feature | Description | Default |
+|---------|-------------|---------|
+| **Source Grounding** | Char offsets propagated through Chunk → ChunkWithScore → Citation | Always on |
+| **Hybrid Search OOTB** | Dense + BM25 with RRF fusion enabled by default | `hybrid_search=True` |
+| **Auto Query Rewriter** | `QueryAnalyzer` auto-enables HyDE/MultiQuery based on question type | `auto_query=True` |
+
+### Phase 1: Quality & Trust
+
+| Feature | Description | Integration |
+|---------|-------------|-------------|
+| **Domain Templates** | Pre-configured presets (financial, legal, medical, academic) | `auto_rag(..., domain="financial")` |
+| **Embedding Auto-Selection** | Resolve "fast" / "balanced" / "accurate" to concrete models | `resolve_embedding("fast")` |
+| **Multi-Level Caching** | Three-level LRU+TTL cache (embeddings, search, answers) | Wired into `AutoRAG._retrieve()` |
+
+### Phase 2: Growth
+
+| Feature | Description | Integration |
+|---------|-------------|-------------|
+| **Query Router** | Intent classification, filter extraction, query decomposition | `auto_rag(..., query_router=True)` |
+| **Adaptive Hybrid Search** | Query-aware dense/sparse weight tuning | `HybridSearch.compute_weights()` in `_retrieve()` |
+| **Context Packer** | Token-budget-aware chunk packing | `rag.query(..., max_tokens=2000)` |
+
 ## Web Crawling
 
 - **`extract_crawl()`**: Breadth-first web crawler
