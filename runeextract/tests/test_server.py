@@ -1,96 +1,115 @@
 """Tests for WebSocket extraction server."""
 
 import json
-import os
-import tempfile
+from unittest.mock import AsyncMock
+
 import pytest
 
-from runeextract.server import ExtractionServer
+from runeextract.server import ExtractionServer, WebSocketHandler
 
 
-@pytest.mark.asyncio
-async def test_ping():
-    server = ExtractionServer()
-    result = await server._process_request({"action": "ping"})
-    assert result == {"status": "pong"}
-
-
-@pytest.mark.asyncio
-async def test_unknown_action():
-    server = ExtractionServer()
-    result = await server._process_request({"action": "unknown"})
-    assert "error" in result
-
-
-@pytest.mark.asyncio
-async def test_extract_no_file():
-    server = ExtractionServer()
-    result = await server._process_request({"action": "extract"})
-    assert "error" in result
-
-
-@pytest.mark.asyncio
-async def test_extract_file_not_found():
-    server = ExtractionServer()
-    result = await server._process_request({"action": "extract", "file_path": "/nonexistent"})
-    assert "error" in result
-    assert "not found" in result["error"]
-
-
-@pytest.mark.asyncio
-async def test_extract_file_success():
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-        f.write("# Test\nHello from server")
-        path = f.name
-    try:
+class TestExtractionServer:
+    def test_default_host_port(self):
         server = ExtractionServer()
-        result = await server._process_request({"action": "extract", "file_path": path})
-        assert "text" in result
-        assert "Hello from server" in result["text"]
-    finally:
-        os.unlink(path)
+        assert server.host == "127.0.0.1"
+        assert server.port == 8765
+
+    def test_custom_host_port(self):
+        server = ExtractionServer(host="0.0.0.0", port=9999)
+        assert server.host == "0.0.0.0"
+        assert server.port == 9999
+
+
+class TestWebSocketHandler:
+    @pytest.mark.asyncio
+    async def test_extract_no_file_path(self):
+        handler = WebSocketHandler()
+        ws = AsyncMock()
+        await handler.handle_extract(ws, {})
+        ws.send.assert_called_once()
+        sent = json.loads(ws.send.call_args[0][0])
+        assert sent["type"] == "error"
+        assert "file_path" in sent["message"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_json(self):
+        handler = WebSocketHandler()
+        ws = AsyncMock()
+        await handler.handle_message(ws, "not json")
+        ws.send.assert_called_once()
+        sent = json.loads(ws.send.call_args[0][0])
+        assert sent["type"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_unknown_type(self):
+        handler = WebSocketHandler()
+        ws = AsyncMock()
+        await handler.handle_message(ws, json.dumps({"type": "unknown_type"}))
+        ws.send.assert_called_once()
+        sent = json.loads(ws.send.call_args[0][0])
+        assert sent["type"] == "error"
+        assert "unknown" in sent["message"]
+
+    @pytest.mark.asyncio
+    async def test_status_not_found(self):
+        handler = WebSocketHandler()
+        ws = AsyncMock()
+        await handler.handle_message(ws, json.dumps({"type": "status", "job_id": "nonexistent"}))
+        ws.send.assert_called_once()
+        sent = json.loads(ws.send.call_args[0][0])
+        assert sent["type"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_list_jobs(self):
+        handler = WebSocketHandler()
+        ws = AsyncMock()
+        await handler.handle_message(ws, json.dumps({"type": "list"}))
+        ws.send.assert_called_once()
+        sent = json.loads(ws.send.call_args[0][0])
+        assert sent["type"] == "job_list"
+
+    @pytest.mark.asyncio
+    async def test_cancel_job(self):
+        handler = WebSocketHandler()
+        ws = AsyncMock()
+        await handler.handle_extract(ws, {"file_path": "/test.pdf"})
+        ws.send.assert_called_once()
+        sent = json.loads(ws.send.call_args[0][0])
+        job_id = sent["job_id"]
+        ws.reset_mock()
+        await handler.handle_message(ws, json.dumps({"type": "cancel", "job_id": job_id}))
+        ws.send.assert_called_once()
+        sent = json.loads(ws.send.call_args[0][0])
+        assert sent["type"] == "cancelled"
+        assert sent["job_id"] == job_id
+
+    @pytest.mark.asyncio
+    async def test_job_created_message(self):
+        handler = WebSocketHandler()
+        ws = AsyncMock()
+        await handler.handle_extract(ws, {"file_path": "/test.pdf"})
+        ws.send.assert_called_once()
+        sent = json.loads(ws.send.call_args[0][0])
+        assert sent["type"] == "job_created"
+        assert "job_id" in sent
+
+    @pytest.mark.asyncio
+    async def test_progress_callback(self):
+        callbacks = []
+        handler = WebSocketHandler(progress_callback=lambda d: callbacks.append(d))
+        ws = AsyncMock()
+        await handler.handle_extract(ws, {"file_path": "/test.pdf"})
+        assert len(callbacks) >= 1
 
 
 @pytest.mark.asyncio
-async def test_extract_with_options():
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
-        f.write("test content")
-        path = f.name
-    try:
+async def test_start_stop_server():
+    from unittest.mock import MagicMock, patch
+    mock_runner = MagicMock()
+    mock_runner.setup = AsyncMock()
+    mock_runner.cleanup = AsyncMock()
+    with patch("aiohttp.web.AppRunner", return_value=mock_runner):
         server = ExtractionServer()
-        result = await server._process_request({
-            "action": "extract",
-            "file_path": path,
-            "options": {"ocr": False, "tables": False},
-        })
-        assert "text" in result
-    finally:
-        os.unlink(path)
-
-
-@pytest.mark.asyncio
-async def test_extract_bytes():
-    import base64
-    data = base64.b64encode(b"hello bytes").decode()
-    server = ExtractionServer()
-    result = await server._process_request({
-        "action": "extract",
-        "file_bytes": data,
-        "filename": "test.md",
-    })
-    assert "text" in result
-    assert "hello bytes" in result["text"]
-
-
-@pytest.mark.asyncio
-async def test_extract_bytes_too_large():
-    import base64
-    data = base64.b64encode(b"x" * 200).decode()
-    server = ExtractionServer(max_file_size=100)
-    result = await server._process_request({
-        "action": "extract",
-        "file_bytes": data,
-        "filename": "test.pdf",
-    })
-    assert "error" in result
-    assert "too large" in result["error"]
+        await server.start()
+        await server.stop()
+        assert mock_runner.cleanup.called

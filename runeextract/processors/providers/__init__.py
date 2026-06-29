@@ -59,3 +59,47 @@ def create_client(provider: str, proc):
     if hasattr(mod, "create_client"):
         return mod.create_client(proc)
     raise ValueError(f"Client creation not supported for provider '{provider}'")
+
+
+def supports_vision(provider: str, model: str) -> bool:
+    """Return True if the provider+model supports image inputs."""
+    mod = _load(provider)
+    if hasattr(mod, "supports_vision"):
+        try:
+            return mod.supports_vision(model)
+        except Exception:
+            return False
+    # Default: check common vision model name patterns
+    vision_patterns = ["gpt-4o", "gpt-4-vision", "claude-3-5", "claude-3-opus",
+                       "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2",
+                       "llava", "vision"]
+    return any(p in model.lower() for p in vision_patterns)
+
+
+def vision_call(provider: str, proc, system: str, user: str,
+                images: list, max_tokens=None) -> str:
+    """Call the LLM with image content blocks.
+
+    Args:
+        provider: Provider name.
+        proc: AIProcessor instance.
+        system: System prompt.
+        user: User text prompt.
+        images: List of (image_bytes: bytes, image_format: str) tuples.
+        max_tokens: Optional max output tokens.
+
+    Returns:
+        The model's text response.
+    """
+    mod = _load(provider)
+    if hasattr(mod, "vision_call"):
+        return mod.vision_call(proc, system, user, images, max_tokens=max_tokens)
+    # Fallback: describe images inline
+    descriptions = []
+    for img_bytes, img_fmt in images:
+        import base64
+        b64 = base64.b64encode(img_bytes).decode("ascii")
+        descriptions.append(f"[Image: data:image/{img_fmt};base64,{b64[:80]}...]")
+    desc_text = "\n".join(descriptions) if descriptions else ""
+    combined = f"{user}\n\n{desc_text}" if desc_text else user
+    return call(provider, proc, system, combined, max_tokens=max_tokens)

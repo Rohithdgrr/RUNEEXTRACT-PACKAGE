@@ -116,18 +116,18 @@ def test_to_chromadb():
 
 def test_to_faiss():
     """to_faiss creates a FAISS index with chunk metadata."""
+    import numpy as np
     faiss_mock = MagicMock()
-    np_mock = MagicMock()
     mock_index_instance = MagicMock()
     faiss_mock.IndexFlatL2.return_value = mock_index_instance
-    # Mock numpy to avoid C extension reload issues on Python 3.14
-    np_mock.float32 = float
-    np_mock.random.default_rng.return_value.random.return_value = [[0.1] * 384]
 
-    with patch.dict("sys.modules", {"faiss": faiss_mock, "numpy": np_mock}):
+    def mock_embedder(texts):
+        return np.random.rand(len(texts), 384).tolist()
+
+    with patch.dict("sys.modules", {"faiss": faiss_mock}):
         doc = Document(text="B" * 2000, source_type="txt")
         doc.chunks(strategy="fixed_size", size=500, overlap=0)
-        index, meta = doc.to_faiss(index_path="./faiss_test")
+        index, meta = doc.to_faiss(index_path="./faiss_test", embedder=mock_embedder)
     assert index is not None
     assert len(meta) > 1
     assert meta[0]["text"]

@@ -10,7 +10,7 @@ import logging
 import threading
 import time
 from collections import OrderedDict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from runeextract.rag.types import ChunkWithScore
 
@@ -64,7 +64,7 @@ class RAGCache:
     Three cache levels:
 
     * ``embedding_cache`` — ``{text_hash → embedding_vector}`` (TTL 3600s)
-    * ``search_cache`` — ``{(query_hash, top_k) → chunks}`` (TTL 300s)
+    * ``search_cache`` — ``{(query_hash, top_k, metadata_filter) → chunks}`` (TTL 300s)
     * ``answer_cache`` — ``{(question_hash) → answer}`` (TTL 600s)
     """
 
@@ -85,14 +85,18 @@ class RAGCache:
 
     # -- search cache ------------------------------------------------------
 
-    def _search_key(self, query: str, top_k: int) -> str:
-        return _hash(query, str(top_k))
+    def _search_key(self, query: str, top_k: int,
+                    metadata_filter: Optional[Dict[str, Any]] = None) -> str:
+        filter_str = "" if metadata_filter is None else str(sorted(metadata_filter.items()))
+        return _hash(query, str(top_k), filter_str)
 
-    def get_search(self, query: str, top_k: int) -> Optional[List[ChunkWithScore]]:
-        return self.search_cache.get(self._search_key(query, top_k))
+    def get_search(self, query: str, top_k: int,
+                   metadata_filter: Optional[Dict[str, Any]] = None) -> Optional[List[ChunkWithScore]]:
+        return self.search_cache.get(self._search_key(query, top_k, metadata_filter))
 
-    def put_search(self, query: str, top_k: int, chunks: List[ChunkWithScore]) -> None:
-        self.search_cache.put(self._search_key(query, top_k), chunks)
+    def put_search(self, query: str, top_k: int, chunks: List[ChunkWithScore],
+                   metadata_filter: Optional[Dict[str, Any]] = None) -> None:
+        self.search_cache.put(self._search_key(query, top_k, metadata_filter), chunks)
 
     # -- answer cache ------------------------------------------------------
 

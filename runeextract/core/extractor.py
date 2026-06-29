@@ -78,25 +78,27 @@ class BaseExtractor(ABC):
         """
         path = Path(file_path)
         
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
-        
-        if not path.is_file():
-            raise ExtractionError(
-                f"Path is not a file: {file_path}",
-                file_path=file_path,
-                error_code="E041"
-            )
-        
-        if not os.access(file_path, os.R_OK):
-            raise ExtractionError(
-                f"No read permission: {file_path}",
-                file_path=file_path,
-                error_code="E040"
-            )
-        
         try:
+            if not path.exists():
+                raise FileNotFoundError(f"File not found: {file_path}")
+            
+            if not path.is_file():
+                raise ExtractionError(
+                    f"Path is not a file: {file_path}",
+                    file_path=file_path,
+                    error_code="E041"
+                )
+
+            if not os.access(file_path, os.R_OK):
+                raise ExtractionError(
+                    f"No read permission: {file_path}",
+                    file_path=file_path,
+                    error_code="E040"
+                )
+            
             stat = path.stat()
+        except FileNotFoundError:
+            raise
         except OSError as exc:
             raise ExtractionError(
                 f"Cannot access file: {file_path} - {exc}",

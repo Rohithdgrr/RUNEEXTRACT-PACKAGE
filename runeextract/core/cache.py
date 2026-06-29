@@ -149,13 +149,25 @@ class ExtractionCache:
             if tables_data:
                 try:
                     from runeextract.models.document import Table
-                    doc._tables = [Table(**t) if isinstance(t, dict) else t for t in tables_data]
+                    doc.tables = [Table(**t) if isinstance(t, dict) else t for t in tables_data]
                 except Exception as exc:
                     logger.warning("Failed to restore cached tables: %s", exc)
             # Restore image refs (not raw bytes to avoid memory bloat)
             images_data = data.get("images")
             if images_data:
-                doc._images = images_data
+                from runeextract.models.types import Image
+                doc.images = [
+                    Image(
+                        data=b"",
+                        format=i.get("format", "unknown"),
+                        width=i.get("width"),
+                        height=i.get("height"),
+                        page_number=i.get("page_number"),
+                        caption=i.get("caption"),
+                        metadata=i.get("metadata", {}),
+                    )
+                    for i in images_data
+                ]
             self._hits += 1
             return doc
         except (TypeError, ValueError) as exc:

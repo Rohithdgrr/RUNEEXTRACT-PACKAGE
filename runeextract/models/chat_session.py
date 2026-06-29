@@ -39,8 +39,9 @@ class ChatSession:
     def _get_ai(self):
         if self.ai_processor is not None:
             return self.ai_processor
-        from runeextract.models.document import _get_document_ai
-        return _get_document_ai(None)
+        from runeextract.processors.ai import AIProcessor
+        self.ai_processor = AIProcessor()
+        return self.ai_processor
 
     def add_user_message(self, content: str):
         """Append a user message to the conversation history."""

@@ -3,11 +3,19 @@ Secret scanning utility.
 
 Detects API keys, tokens, passwords, and other secrets in extracted text.
 Integrates with the security logging system for audit trails.
+Includes input size limits to prevent ReDoS attacks.
 """
 
+import logging
 import re
+import time
 from typing import List, Optional
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
+
+_MAX_SCAN_SIZE = 1_000_000  # 1MB max input to prevent ReDoS
+_REGEX_TIMEOUT = 5.0  # seconds max for all regex operations
 
 
 @dataclass
@@ -67,39 +75,57 @@ _SECRET_PATTERNS = [
 def scan_secrets(text: str) -> List[SecretFinding]:
     """Scan text for known secret patterns.
 
+    Includes input size limits (1 MB) and regex timeout (5 s) to prevent ReDoS.
+
     Args:
         text: The text content to scan.
 
     Returns:
         List of SecretFinding dataclass instances, ordered by position.
     """
+    if len(text) > _MAX_SCAN_SIZE:
+        logger.warning(
+            "Input too large for secret scanning (%d bytes, max %d); truncating",
+            len(text), _MAX_SCAN_SIZE,
+        )
+        text = text[:_MAX_SCAN_SIZE]
+
     findings: List[SecretFinding] = []
     seen_spans: set = set()
+    deadline = time.monotonic() + _REGEX_TIMEOUT
 
     for pattern_name, regex, severity, redacted in _SECRET_PATTERNS:
-        for match in regex.finditer(text):
-            span = match.span()
-            if span in seen_spans:
-                continue
-            seen_spans.add(span)
+        if time.monotonic() > deadline:
+            logger.warning("Secret scanning timed out after %.1fs — returning partial results", _REGEX_TIMEOUT)
+            break
+        try:
+            for match in regex.finditer(text):
+                if time.monotonic() > deadline:
+                    break
+                span = match.span()
+                if span in seen_spans:
+                    continue
+                seen_spans.add(span)
 
-            start = span[0]
-            end = span[1]
-            context_start = max(0, start - 30)
-            context_end = min(len(text), end + 30)
+                start = span[0]
+                end = span[1]
+                context_start = max(0, start - 30)
+                context_end = min(len(text), end + 30)
 
-            line_number = text[:start].count("\n") + 1
+                line_number = text[:start].count("\n") + 1
 
-            findings.append(SecretFinding(
-                secret_type=pattern_name,
-                pattern_name=pattern_name,
-                context=text[context_start:context_end].replace("\n", " "),
-                start=start,
-                end=end,
-                severity=severity,
-                line_number=line_number,
-                redacted=redacted,
-            ))
+                findings.append(SecretFinding(
+                    secret_type=pattern_name,
+                    pattern_name=pattern_name,
+                    context=text[context_start:context_end].replace("\n", " "),
+                    start=start,
+                    end=end,
+                    severity=severity,
+                    line_number=line_number,
+                    redacted=redacted,
+                ))
+        except re.error as exc:
+            logger.warning("Regex error on pattern '%s': %s — skipping", pattern_name, exc)
 
     findings.sort(key=lambda f: f.start)
     return findings

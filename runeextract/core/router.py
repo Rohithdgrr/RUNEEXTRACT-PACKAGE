@@ -24,11 +24,12 @@ def _detect_youtube(file_path: str) -> bool:
 
 
 def _detect_notion(file_path: str) -> bool:
-    return "notion." in file_path or file_path.startswith("notion://") or (
-        len(file_path.replace("-", "").replace("/", "")) >= 32
-        and file_path.startswith("http")
-        and "notion" in file_path.lower()
-    )
+    import re
+    if file_path.startswith("notion://"):
+        return True
+    if re.search(r'notion\.(so|site)/', file_path, re.IGNORECASE):
+        return True
+    return False
 
 
 _URL_EXTRACTORS = [

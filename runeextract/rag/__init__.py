@@ -41,6 +41,24 @@ from runeextract.rag.api_server import RAGAPIServer
 from runeextract.rag.reasoning import ChainOfThoughtReasoner, ReasoningStep, ReasoningTrace
 # Phase 0: Auto Query Rewriter
 from runeextract.rag.query_analyzer import QueryAnalyzer
+from runeextract.rag.knowledge_base import KnowledgeBase
+from runeextract.rag.versioning import IndexVersioning, SnapshotInfo, ChangelogReport
+from runeextract.rag.budget import BudgetManager, BudgetConfig, BudgetState, BudgetExceededError
+from runeextract.rag.dedup_engine import DedupEngine, DedupReport, DuplicateGroup
+from runeextract.rag.fine_tune import (
+    FineTuneExample, FineTuneDataset, generate_examples_from_document,
+    generate_fine_tuning_data, extract_topics,
+)
+from runeextract.rag.middleware import (
+    MiddlewarePipeline, RAGMiddleware, LoggingMiddleware, TimingMiddleware,
+    CacheMiddleware, FallbackMiddleware, apply_middleware,
+)
+from runeextract.rag.embed_cache import PersistentEmbeddingCache
+from runeextract.rag.persistence import IndexPersister, IndexState
+from runeextract.rag.tiered_index import TieredIndex, TierConfig, TierStats
+from runeextract.rag.tenant import TenantStore, MultiTenantRAG
+from runeextract.rag.graph_rag import GraphRAGQuery
+from runeextract.rag.eval_suite import RAGEvaluator as RAGEvalSuite, EvalQuestion, EvalResult, Scorecard
 
 __all__ = [
     "AutoRAG",
@@ -113,4 +131,39 @@ __all__ = [
     "ReasoningTrace",
     # Phase 0
     "QueryAnalyzer",
+    "KnowledgeBase",
+    # Versioning & Budget
+    "IndexVersioning",
+    "SnapshotInfo",
+    "ChangelogReport",
+    "BudgetManager",
+    "BudgetConfig",
+    "BudgetState",
+    "BudgetExceededError",
+    "DedupEngine",
+    "DedupReport",
+    "DuplicateGroup",
+    # Fine-Tuning
+    "FineTuneExample",
+    "FineTuneDataset",
+    "generate_examples_from_document",
+    "generate_fine_tuning_data",
+    "extract_topics",
+    # Middleware
+    "MiddlewarePipeline", "RAGMiddleware",
+    "LoggingMiddleware", "TimingMiddleware",
+    "CacheMiddleware", "FallbackMiddleware",
+    "apply_middleware",
+    # Embed Cache
+    "PersistentEmbeddingCache",
+    # Persistence
+    "IndexPersister", "IndexState",
+    # Tiered Index
+    "TieredIndex", "TierConfig", "TierStats",
+    # Multi-Tenant
+    "TenantStore", "MultiTenantRAG",
+    # GraphRAG
+    "GraphRAGQuery",
+    # Eval Suite
+    "RAGEvalSuite", "EvalQuestion", "EvalResult", "Scorecard",
 ]

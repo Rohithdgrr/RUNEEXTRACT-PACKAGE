@@ -7,8 +7,10 @@ a unified ``query()`` method with HyDE, multi-query expansion,
 cross-encoder reranking, and cited answers.
 """
 
+import asyncio
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union, Callable
@@ -78,10 +80,12 @@ def auto_rag(source: Union[str, List[str]],
              auto_query: bool = True,
              # Phase 1 features
              domain: Optional[str] = None,
-             # Phase 2 features
-             query_router: bool = False,
-             context_packer: Optional[int] = None,
-             **extract_options) -> "AutoRAG":
+              # Phase 1 features
+              cache_maxsize: int = 500,
+              # Phase 2 features
+              query_router: bool = False,
+              context_packer: Optional[int] = None,
+              **extract_options) -> "AutoRAG":
     """Convenience factory: create an AutoRAG pipeline and ingest the source.
 
     Args:
@@ -157,6 +161,7 @@ def auto_rag(source: Union[str, List[str]],
                   auto_query=auto_query,
                   # Phase 1 features
                   domain=domain,
+                  cache_maxsize=cache_maxsize,
                   # Phase 2 features
                   query_router=query_router,
                   context_packer=context_packer)
@@ -286,6 +291,7 @@ class AutoRAG:
         self._retriever_failures: int = 0
         self._retriever_cb_open: bool = False
         self._retriever_cb_threshold: int = 3
+        self._lock = threading.Lock()
         
         if safe_mode:
             logger.info("🛡️  Safe mode enabled: cost limits, secret scanning, timeouts active")
@@ -455,11 +461,11 @@ class AutoRAG:
                     with open(src, 'rb') as f:
                         content_hash = hashlib.sha256(f.read()).hexdigest()
                     
-                    if src in self._file_hashes and self._file_hashes[src] == content_hash:
-                        logger.debug(f"⏭️  Skipping unchanged file: {src}")
-                        continue
-                    
-                    self._file_hashes[src] = content_hash
+                    with self._lock:
+                        if src in self._file_hashes and self._file_hashes[src] == content_hash:
+                            logger.debug(f"⏭️  Skipping unchanged file: {src}")
+                            continue
+                        self._file_hashes[src] = content_hash
                     logger.info(f"📄 Processing changed/new file: {src}")
                 
                 # 🚀 Feature 5: Apply timeout and safety checks
@@ -484,13 +490,70 @@ class AutoRAG:
             except Exception as e:
                 logger.warning(f"Skipping {src}: {e}")
 
-        self._documents.extend(docs)
+        with self._lock:
+            self._documents.extend(docs)
         self._chunk_and_index(docs)
         return docs
 
+    async def aingest(
+        self,
+        source: str,
+        incremental: bool = True,
+        max_concurrency: int = 4,
+        **extract_options,
+    ) -> List[Document]:
+        loop = asyncio.get_event_loop()
+        sources = self._resolve_source(source)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        docs = []
+        with ThreadPoolExecutor(max_workers=max_concurrency) as pool:
+            futures = []
+            for src in sources:
+                future = loop.run_in_executor(
+                    pool, self._ingest_single, src, incremental, extract_options,
+                )
+                futures.append(future)
+            for coro in asyncio.as_completed(futures):
+                try:
+                    doc = await coro
+                    if doc is not None:
+                        docs.append(doc)
+                except Exception as e:
+                    logger.warning("Async ingest failed: %s", e)
+        with self._lock:
+            self._documents.extend(docs)
+        self._chunk_and_index(docs)
+        return docs
+
+    def _ingest_single(self, src: str, incremental: bool, extract_options: dict) -> Optional[Document]:
+        import hashlib
+        try:
+            if incremental and os.path.isfile(src):
+                with open(src, 'rb') as f:
+                    content_hash = hashlib.sha256(f.read()).hexdigest()
+                with self._lock:
+                    if src in self._file_hashes and self._file_hashes[src] == content_hash:
+                        return None
+                    self._file_hashes[src] = content_hash
+            extract_opts = extract_options.copy()
+            if self.timeout_per_doc:
+                extract_opts['timeout'] = self.timeout_per_doc
+            doc = extract(src, **extract_opts)
+            if self.scan_secrets and doc.text:
+                findings = self._scan_document_secrets(doc)
+                if findings:
+                    doc.text = self._redact_document_secrets(doc.text, findings)
+            if self.multimodal and doc.images:
+                doc = self._process_multimodal(doc)
+            return doc
+        except Exception as e:
+            logger.warning(f"Skipping {src}: {e}")
+            return None
+
     def ingest_documents(self, documents: List[Document]) -> None:
         """Index already-extracted Document objects."""
-        self._documents.extend(documents)
+        with self._lock:
+            self._documents.extend(documents)
         self._chunk_and_index(documents)
 
     # ------------------------------------------------------------------
@@ -857,8 +920,7 @@ class AutoRAG:
             return []
 
         # Phase 1: Multi-Level Cache — check search cache first
-        cache_key = f"search:{query}:{top_k}:{metadata_filter}"
-        cached = self._rag_cache.get_search(query, top_k)
+        cached = self._rag_cache.get_search(query, top_k, metadata_filter=metadata_filter)
         if cached is not None:
             logger.debug(f"RAGCache hit for search: {query[:40]}...")
             return cached
@@ -944,7 +1006,7 @@ class AutoRAG:
                 logger.debug("Hybrid search failed: %s", exc)
 
         # Phase 1: Multi-Level Cache — store search results
-        self._rag_cache.put_search(query, top_k, text_chunks)
+        self._rag_cache.put_search(query, top_k, text_chunks, metadata_filter=metadata_filter)
         return text_chunks
 
     def _get_retriever(self) -> Union[ChromaRetriever, FAISSRetriever]:
@@ -1207,15 +1269,6 @@ class AutoRAG:
                       "long": "3-5 paragraphs"}
         length_inst = length_map.get(length, "1 paragraph")
 
-        # 🚀 Feature 4: Include images in vision prompt
-        has_images = mm_images and len(mm_images) > 0
-        if has_images:
-            image_text = "\n".join(
-                f"[IMAGE: {img.get('text', '')}] (source: {img.get('source', 'unknown')})"
-                for img in mm_images[:4]
-            )
-            context += f"\n\n---\nReferenced images:\n{image_text}"
-
         prompt = (
             f"Answer the question using ONLY the provided context. "
             f"Cite sources using [1], [2], etc. "
@@ -1228,11 +1281,52 @@ class AutoRAG:
             f"- Be concise and accurate"
         )
 
-        answer = self.ai._call(
-            "You are a helpful RAG assistant. Answer accurately with citations.",
-            prompt,
-            **llm_kwargs,
-        )
+        # 🚀 Feature 4: Pass images as vision content blocks
+        has_images = mm_images and len(mm_images) > 0
+        if has_images and hasattr(self.ai, 'has_vision') and self.ai.has_vision:
+            from runeextract.processors import providers as _pv
+            provider = "local" if getattr(self.ai, 'use_local', False) else self.ai.provider
+            images_to_send = []
+            for img in mm_images[:4]:
+                data = img.get('data') or img.get('image_data')
+                fmt = img.get('format') or img.get('image_format', 'png')
+                if data:
+                    if isinstance(data, str):
+                        import base64
+                        try:
+                            data = base64.b64decode(data)
+                        except Exception:
+                            continue
+                    images_to_send.append((data, fmt))
+            if images_to_send:
+                vkwargs = {}
+                if "max_tokens" in llm_kwargs:
+                    vkwargs["max_tokens"] = llm_kwargs["max_tokens"]
+                answer = _pv.vision_call(
+                    provider, self.ai,
+                    system="You are a helpful RAG assistant. Answer accurately with citations.",
+                    user=prompt + ("\n\nThe user also provided images. Reference them as needed."),
+                    images=images_to_send,
+                    **vkwargs,
+                )
+            else:
+                answer = self.ai._call(
+                    "You are a helpful RAG assistant. Answer accurately with citations.",
+                    prompt,
+                    **llm_kwargs,
+                )
+        else:
+            if has_images:
+                image_text = "\n".join(
+                    f"[IMAGE: {img.get('text', '')}] (source: {img.get('source', 'unknown')})"
+                    for img in mm_images[:4]
+                )
+                prompt += f"\n\n---\nReferenced images:\n{image_text}"
+            answer = self.ai._call(
+                "You are a helpful RAG assistant. Answer accurately with citations.",
+                prompt,
+                **llm_kwargs,
+            )
 
         citations = []
         if return_citations:
@@ -1413,6 +1507,8 @@ class AutoRAG:
             self._watcher_running = False
             if self._watcher_thread:
                 self._watcher_thread.join(timeout=5)
+            with self._lock:
+                self._watcher_thread = None
             logger.info("🛑 Document watcher stopped")
     
     # Phase 0: Auto Query Rewriter
@@ -1461,13 +1557,10 @@ class AutoRAG:
         logger.info(f"🖼️  Processing {len(doc.images)} images with vision model")
         
         try:
-            # Check if vision is available
-            if not hasattr(self.ai, 'describe_image'):
-                # Fallback to OCR
+            if not (hasattr(self.ai, 'has_vision') and self.ai.has_vision):
                 logger.debug("Vision model not available, using OCR")
                 return doc
-            
-            # Process each image
+
             for img in doc.images:
                 import hashlib
                 img_hash = hashlib.md5(img.data[:1000] if img.data else b"").hexdigest()
@@ -1476,9 +1569,9 @@ class AutoRAG:
                 if img_hash in self._vision_cache:
                     description = self._vision_cache[img_hash]
                 else:
-                    # Describe image with vision model
                     try:
-                        description = self.ai.describe_image(img.data)
+                        fmt = getattr(img, 'format', 'png') or 'png'
+                        description = self.ai.describe_image(img.data, image_format=fmt)
                         self._vision_cache[img_hash] = description
                         logger.debug(f"Vision description: {description[:100]}...")
                     except Exception as e:
@@ -1654,6 +1747,24 @@ class AutoRAG:
             uvicorn.run(app, host=host, port=port, **uvicorn_kwargs)
         except ImportError:
             logger.error("uvicorn not installed. Install: pip install uvicorn")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._watcher_running:
+            self.stop_watch()
+        if self._semantic_cache:
+            try:
+                self._semantic_cache.close()
+            except Exception:
+                pass
+        if self._analytics:
+            try:
+                self._analytics.close()
+            except Exception:
+                pass
+        return False
 
     def __del__(self):
         """Cleanup on deletion."""

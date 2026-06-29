@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+
 from runeextract.rag.types import ChunkWithScore
 
 logger = logging.getLogger(__name__)
@@ -76,15 +78,19 @@ class HybridSearch:
     """
 
     def __init__(self, dense_fn: Callable[[str], List[float]],
-                 chunks: Optional[List[ChunkWithScore]] = None):
+                 chunks: Optional[List[ChunkWithScore]] = None,
+                 embeddings: Optional[List[List[float]]] = None):
         self._dense_fn = dense_fn
         self._corpus: List[str] = [c.text for c in chunks] if chunks else []
+        self._embeddings: List[List[float]] = embeddings if embeddings else []
         self._bm25: Optional[BM25Sparse] = None
         if self._corpus:
             self._bm25 = BM25Sparse(self._corpus)
 
-    def update_corpus(self, chunks: List[ChunkWithScore]) -> None:
+    def update_corpus(self, chunks: List[ChunkWithScore],
+                      embeddings: Optional[List[List[float]]] = None) -> None:
         self._corpus = [c.text for c in chunks]
+        self._embeddings = embeddings if embeddings else []
         self._bm25 = BM25Sparse(self._corpus) if self._corpus else None
 
     def analyze_query(self, query: str) -> Dict[str, float]:
@@ -132,14 +138,14 @@ class HybridSearch:
         dense_scores: Dict[int, float] = {}
         sparse_scores: Dict[int, float] = {}
 
-        if self._dense_fn and self._corpus:
+        if self._dense_fn and self._embeddings and len(self._embeddings) == len(self._corpus):
             try:
                 query_emb = self._dense_fn(query)
-                from runeextract.rag.types import ChunkWithScore
-                dummy_chunks = [
-                    ChunkWithScore(text=t, score=0.0) for t in self._corpus
-                ]
-                dense_scores = {i: 1.0 - (i / len(self._corpus)) for i in range(len(self._corpus))}
+                query_vec = np.array(query_emb, dtype=np.float32)
+                chunk_vecs = np.array(self._embeddings, dtype=np.float32)
+                norms = np.linalg.norm(chunk_vecs, axis=1) * np.linalg.norm(query_vec)
+                sims = np.dot(chunk_vecs, query_vec) / np.maximum(norms, 1e-10)
+                dense_scores = {i: float(sim) for i, sim in enumerate(sims)}
             except Exception as exc:
                 logger.debug("Dense search failed: %s", exc)
 

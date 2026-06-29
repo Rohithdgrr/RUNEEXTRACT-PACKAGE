@@ -91,6 +91,17 @@ def _watch_directory(watch_dir: str, kwargs: dict) -> None:
 
 def main() -> None:
     parser = build_parser()
+
+    # Handle subcommands before full parse (argparse needs positional after sub)
+    if len(sys.argv) > 1 and sys.argv[1] == "doctor":
+        from runeextract.cli.doctor import main as doctor_main
+        doctor_main(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "eval":
+        from runeextract.cli.eval_cli import main as eval_main
+        eval_main(sys.argv[2:])
+        return
+
     if '--version' in sys.argv or '-v' in sys.argv:
         from runeextract import __version__
         print(f"runeextract {__version__}")

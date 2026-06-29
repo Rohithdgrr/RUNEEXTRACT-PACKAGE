@@ -1,64 +1,57 @@
-"""Tests for Fast Mode / Quality Levels."""
+"""Tests for Quality Levels / Fast Mode feature."""
 
 import pytest
 
-from runeextract.quality import FastMode, QualityLevel, configure_quality
+from runeextract.quality import QualityLevel, QualityConfig, get_quality_config, extract_with_quality, resolution_map
 
 
 class TestQualityLevel:
     def test_values(self):
-        assert QualityLevel.FAST.value == "fast"
-        assert QualityLevel.MAXIMUM.value == "maximum"
+        assert QualityLevel.DRAFT.value == "draft"
+        assert QualityLevel.NORMAL.value == "normal"
+        assert QualityLevel.VERIFIED.value == "verified"
+
+    def test_enum_members(self):
+        assert list(QualityLevel) == [QualityLevel.DRAFT, QualityLevel.NORMAL, QualityLevel.VERIFIED]
 
 
-class TestFastMode:
-    def test_defaults(self):
-        fm = FastMode()
-        assert fm.enabled is False
-        assert fm.skip_ocr is True
-        assert fm.extract_timeout == 30
+class TestQualityConfig:
+    def test_draft_config(self):
+        config = get_quality_config(QualityLevel.DRAFT)
+        assert config.ocr is False
+        assert config.tables is False
+        assert config.images is False
 
-    def test_for_level_fast(self):
-        fm = FastMode.for_level(QualityLevel.FAST)
-        assert fm.enabled is True
-        assert fm.skip_ocr is True
-        assert fm.skip_tables is True
-        assert fm.max_pages == 5
-        assert fm.extract_timeout == 15
+    def test_normal_config(self):
+        config = get_quality_config("normal")
+        assert config.ocr is True
+        assert config.tables is True
+        assert config.image_dpi == 150
 
-    def test_for_level_standard(self):
-        fm = FastMode.for_level(QualityLevel.STANDARD)
-        assert fm.enabled is False
-        assert fm.skip_ocr is False
-        assert fm.max_pages is None
-        assert fm.extract_timeout == 60
+    def test_verified_config(self):
+        config = get_quality_config(QualityLevel.VERIFIED)
+        assert config.ocr is True
+        assert config.ai_analysis is True
+        assert config.image_dpi == 300
 
-    def test_for_level_high(self):
-        fm = FastMode.for_level(QualityLevel.HIGH)
-        assert fm.enabled is False
-        assert fm.extract_timeout == 300
+    def test_get_quality_config_invalid(self):
+        with pytest.raises(ValueError):
+            get_quality_config("nonexistent")
 
-    def test_for_level_maximum(self):
-        fm = FastMode.for_level(QualityLevel.MAXIMUM)
-        assert fm.enabled is False
-        assert fm.extract_timeout == 600
+    def test_to_extract_kwargs(self):
+        config = QualityConfig(ocr=True, tables=False)
+        kwargs = config.to_extract_kwargs()
+        assert kwargs["ocr"] is True
+        assert kwargs["tables"] is False
+        assert kwargs["images"] is True
 
-    def test_custom_override(self):
-        fm = FastMode(enabled=True, extract_timeout=10, max_pages=2)
-        assert fm.extract_timeout == 10
-        assert fm.max_pages == 2
-
-    def test_unknown_level_falls_back(self):
-        fm = FastMode.for_level("unknown")  # type: ignore
-        assert fm.enabled is False
+    def test_resolution_map(self):
+        assert resolution_map[QualityLevel.DRAFT] == 72
+        assert resolution_map[QualityLevel.NORMAL] == 150
+        assert resolution_map[QualityLevel.VERIFIED] == 300
 
 
-class TestConfigureQuality:
-    def test_fast(self):
-        fm = configure_quality(QualityLevel.FAST)
-        assert fm.enabled is True
-        assert fm._level == QualityLevel.FAST
-
-    def test_standard(self):
-        fm = configure_quality(QualityLevel.STANDARD)
-        assert fm.enabled is False
+class TestExtractWithQuality:
+    def test_file_not_found(self):
+        with pytest.raises(FileNotFoundError):
+            extract_with_quality("/nonexistent/file.pdf", level=QualityLevel.DRAFT)

@@ -52,6 +52,7 @@ class AIProcessor:
         provider: str = "openai",
         use_local: bool = False,
         rate_limiter: Optional[RateLimiter] = None,
+        fallback_providers: Optional[List[Dict[str, Any]]] = None,
     ):
         self.provider = provider.lower()
         self.use_local = use_local
@@ -60,6 +61,8 @@ class AIProcessor:
         self._total_cost = 0.0
         self._call_count = 0
         self.rate_limiter = rate_limiter
+        self.fallback_providers = fallback_providers or []
+        self._shared_thread_pool = None
 
         if use_local:
             self.api_key = None
@@ -84,14 +87,16 @@ class AIProcessor:
             self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY")
         elif self.provider == "mistral":
             self.api_key = api_key or os.environ.get("MISTRAL_API_KEY")
+        elif self.provider == "local":
+            self.api_key = None
         else:
             raise ExtractionError(
                 f"Unknown provider '{provider}'. Options: openai, openrouter, anthropic, gemini, ollama, "
-                f"azure, bedrock, groq, together, deepseek, mistral",
+                f"azure, bedrock, groq, together, deepseek, mistral, local",
                 error_code="E033"
             )
 
-        no_key_providers = {"ollama", "bedrock"}
+        no_key_providers = {"ollama", "bedrock", "local"}
         if not use_local and not self.api_key and self.provider not in no_key_providers:
             _env_map = {"azure": "AZURE_OPENAI_API_KEY", "openai": "OPENAI_API_KEY",
                         "openrouter": "OPENAI_API_KEY",
@@ -197,6 +202,21 @@ class AIProcessor:
 
     # --- Core call methods (delegate to provider registry) ---
 
+    def _get_provider_chain(self):
+        """Build list of (provider_name, ai_processor) tuples for fallback."""
+        chain = [(self.provider, self)]
+        for fb in self.fallback_providers:
+            fb_provider = fb.get("provider", "")
+            if fb_provider and fb_provider != chain[-1][0]:
+                fb_ai = AIProcessor(
+                    provider=fb_provider,
+                    api_key=fb.get("api_key"),
+                    model=fb.get("model"),
+                    use_local=self.use_local,
+                )
+                chain.append((fb_provider, fb_ai))
+        return chain
+
     def _call(
         self,
         system: str,
@@ -207,19 +227,42 @@ class AIProcessor:
         if self.rate_limiter:
             self.rate_limiter()
         user = self._sanitize_user_input(user)
-        if self.use_local:
-            return _providers.call("local", self, system, user,
-                                   response_format=response_format, max_tokens=max_tokens)
-        return _providers.call(self.provider, self, system, user,
-                               response_format=response_format, max_tokens=max_tokens)
+
+        chain = self._get_provider_chain()
+        last_error = None
+        for provider_name, ai_inst in chain:
+            try:
+                key = "local" if ai_inst.use_local else provider_name
+                return _providers.call(key, ai_inst, system, user,
+                                       response_format=response_format, max_tokens=max_tokens)
+            except Exception as exc:
+                last_error = exc
+                if provider_name != chain[-1][0]:
+                    logger.warning("Provider '%s' failed, trying fallback: %s", provider_name, exc)
+                continue
+        safe_msg = self._sanitize_error(last_error) if last_error else "All providers failed"
+        raise ExtractionError(f"AI call failed after fallbacks: {safe_msg[:500]}", error_code="E031")
 
     def _call_stream(self, system: str, user: str, max_tokens: Optional[int] = None):
         if self.rate_limiter:
             self.rate_limiter()
         self._check_circuit_breaker()
         user = self._sanitize_user_input(user)
-        key = "local" if self.use_local else self.provider
-        yield from _providers.call_stream(key, self, system, user, max_tokens=max_tokens)
+
+        chain = self._get_provider_chain()
+        last_error = None
+        for provider_name, ai_inst in chain:
+            try:
+                key = "local" if ai_inst.use_local else provider_name
+                yield from _providers.call_stream(key, ai_inst, system, user, max_tokens=max_tokens)
+                return
+            except Exception as exc:
+                last_error = exc
+                if provider_name != chain[-1][0]:
+                    logger.warning("Stream provider '%s' failed, trying fallback: %s", provider_name, exc)
+                continue
+        safe_msg = self._sanitize_error(last_error) if last_error else "All providers failed"
+        raise ExtractionError(f"AI stream failed after fallbacks: {safe_msg[:500]}", error_code="E031")
 
     def _call_chunked(
         self,
@@ -273,11 +316,29 @@ class AIProcessor:
     async def call_stream_async(self, system: str, user: str, max_tokens: Optional[int] = None):
         import asyncio
         loop = asyncio.get_running_loop()
-        chunks = await loop.run_in_executor(
-            None, lambda: list(self._call_stream(system, user, max_tokens=max_tokens))
-        )
-        for chunk in chunks:
-            yield chunk
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def _produce():
+            try:
+                for chunk in self._call_stream(system, user, max_tokens=max_tokens):
+                    fut = asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
+                    fut.result()
+            except Exception as exc:
+                fut = asyncio.run_coroutine_threadsafe(queue.put(exc), loop)
+                fut.result()
+            finally:
+                fut = asyncio.run_coroutine_threadsafe(queue.put(None), loop)
+                fut.result()
+
+        runner = loop.run_in_executor(None, _produce)
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            yield item
+        await runner
 
     # --- Public AI methods ---
 
@@ -383,6 +444,11 @@ class AIProcessor:
         )
 
     def redact_pii(self, text: str, use_dp: bool = False, epsilon: float = 1.0) -> str:
+        if not text:
+            return text
+        if len(text) > 500_000:
+            logger.warning("PII redaction input too large (%d bytes) — truncating to 500KB", len(text))
+            text = text[:500_000]
         patterns = [
             (r'\b[\w\.-]+@[\w\.-]+\.\w+\b', '[EMAIL]'),
             (r'\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b', '[PHONE]'),
@@ -400,7 +466,10 @@ class AIProcessor:
         ]
         result = text
         for pat, replacement in patterns:
-            result = re.sub(pat, replacement, result)
+            try:
+                result = re.sub(pat, replacement, result)
+            except re.error as exc:
+                logger.warning("PII redaction regex error: %s — skipping pattern", exc)
         if use_dp:
             from runeextract.utils.privacy import DifferentialPrivacyEngine
             dp = DifferentialPrivacyEngine(epsilon=epsilon)
@@ -462,10 +531,6 @@ class AIProcessor:
         self._total_output_tokens = 0
         self._total_cost = 0.0
         self._call_count = 0
-
-    def close(self):
-        self._client = None
-        self._local_pipeline = None
 
     def __enter__(self):
         return self
@@ -546,6 +611,12 @@ class AIProcessor:
             logger.warning("HyDE generation failed: %s", exc)
             return query
 
+    def _get_thread_pool(self, max_workers: int = 4):
+        from concurrent.futures import ThreadPoolExecutor
+        if self._shared_thread_pool is None:
+            self._shared_thread_pool = ThreadPoolExecutor(max_workers=max_workers)
+        return self._shared_thread_pool
+
     def batch_process(self, prompts: List[Dict[str, str]], max_concurrency: int = 4) -> List[str]:
         results = [None] * len(prompts)
 
@@ -555,21 +626,85 @@ class AIProcessor:
             results[idx] = self._call(system, user)
             return idx
 
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        with ThreadPoolExecutor(max_workers=max(1, min(max_concurrency, len(prompts)))) as pool:
-            futures = [pool.submit(_process, i, p) for i, p in enumerate(prompts)]
-            for f in as_completed(futures):
-                f.result()
+        from concurrent.futures import as_completed
+        pool = self._get_thread_pool(max_workers=max(1, min(max_concurrency, len(prompts))))
+        futures = [pool.submit(_process, i, p) for i, p in enumerate(prompts)]
+        for f in as_completed(futures):
+            f.result()
         return [r for r in results if r is not None]
+
+    def close(self):
+        self._client = None
+        self._local_pipeline = None
+        if self._shared_thread_pool:
+            self._shared_thread_pool.shutdown(wait=False)
+            self._shared_thread_pool = None
+
+    # --- Vision / Multi-modal ---
+
+    @property
+    def has_vision(self) -> bool:
+        """Auto-detect if the current model supports image inputs."""
+        return _providers.supports_vision(self.provider, self.model)
+
+    def describe_image(self, image_data: bytes, image_format: str = "png",
+                       prompt: str = "Describe this image in detail.") -> str:
+        """Describe an image using the LLM's vision capability.
+
+        Args:
+            image_data: Raw image bytes.
+            image_format: Image format (png, jpeg, etc.).
+            prompt: Optional prompt describing what to extract.
+
+        Returns:
+            Text description of the image.
+        """
+        provider = "local" if self.use_local else self.provider
+        return _providers.vision_call(
+            provider, self,
+            system="You are a vision analyst. Describe the image in detail.",
+            user=prompt,
+            images=[(image_data, image_format)],
+        )
+
+    def analyze_images(self, images: list,
+                       prompt: str = "Describe these images in detail.") -> List[str]:
+        """Analyze multiple images in a single call (if supported).
+
+        Args:
+            images: List of (image_data: bytes, image_format: str) tuples.
+            prompt: Prompt to use for all images.
+
+        Returns:
+            The model's combined response text.
+        """
+        if not images:
+            return []
+        provider = "local" if self.use_local else self.provider
+        result = _providers.vision_call(
+            provider, self,
+            system="You are a vision analyst. Respond to the prompt about the provided images.",
+            user=prompt,
+            images=images,
+        )
+        return [result]
 
     # --- Embedding ---
 
     def embed(self, texts: Union[str, List[str]], model: Optional[str] = None) -> List[List[float]]:
         if isinstance(texts, str):
             texts = [texts]
-        if self.use_local:
-            return _providers.embed("local", self, texts, model=model)
-        try:
-            return _providers.embed(self.provider, self, texts, model=model)
-        except ValueError as exc:
-            raise ExtractionError(str(exc), error_code="E033")
+
+        chain = self._get_provider_chain()
+        last_error = None
+        for provider_name, ai_inst in chain:
+            try:
+                key = "local" if ai_inst.use_local else provider_name
+                return _providers.embed(key, ai_inst, texts, model=model)
+            except Exception as exc:
+                last_error = exc
+                if provider_name != chain[-1][0]:
+                    logger.warning("Embed provider '%s' failed, trying fallback: %s", provider_name, exc)
+                continue
+        safe_msg = self._sanitize_error(last_error) if last_error else "All providers failed"
+        raise ExtractionError(f"Embedding failed after fallbacks: {safe_msg[:500]}", error_code="E033")

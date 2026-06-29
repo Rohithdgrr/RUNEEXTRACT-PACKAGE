@@ -10,60 +10,127 @@ from runeextract.models.document import Document, ChunkingStrategy, ChatSession
 
 __version__ = "0.8.0"
 __all__ = [
+    # Core extraction
     "extract", "extract_many", "extract_many_with_errors",
-    "extract_async", "extract_many_async", "extract_async_url", "extract_many_async_url", "batch_process", "ProcessPoolExtractor", "extract_and_index",
-    "extract_stream", "extract_from_bytes", "extract_from_string",
+    "extract_from_bytes", "extract_from_string",
+    "extract_async", "extract_many_async",
+    "extract_stream",
     "extract_crawl",
-    "Document", "ChunkingStrategy", "get_config", "set_config",
-    "AutoRAG", "auto_rag", "instant_rag", "RobustRAG", "RAGDebugger", "ConfidenceScorer", "QueryRouter", "QueryAnalyzer",
-    "scan_secrets", "redact_secrets", "MemoryProfiler",
-    "DifferentialPrivacyEngine", "SecretFinding", "WrongPasswordError",
+    # Core models
+    "Document", "ChunkingStrategy", "ChatSession",
+    "SecretFinding",
+    # Configuration
+    "get_config", "set_config",
+    # Exceptions
+    "ExtractionError", "PathTraversalError", "ExtractionTimeoutError", "WrongPasswordError",
+    # RAG pipeline
+    "AutoRAG", "auto_rag", "instant_rag", "RobustRAG",
+    "QueryRouter", "SmartQueryRouter", "RouteDecision",
+    # Security
+    "scan_secrets", "redact_secrets",
+    "DifferentialPrivacyEngine",
+    # Structured extraction
     "StructuredExtractor", "extract_structured", "StructuredExtractionError",
-    "CitationEngine", "CitationResult", "cite_document",
+    # Web
     "SmartCrawler", "CrawlResult", "smart_crawl",
-    "parse_sitemap", "discover_sitemap",
-    "parse_feed", "discover_feed",
+    # Pipeline / orchestration
     "Pipeline", "PipelineStep", "PipelineContext", "PipelineResult", "run_pipeline",
     "DagPipeline", "ConditionalStep", "ParallelStep", "WaitStep",
-    "DirectoryWatcher", "FileEvent", "poll_directory",
-    "FileSync", "sync_directories",
-    "scan_and_extract", "watch_and_extract",
-    "mcp_tool_extract", "mcp_tool_extract_many", "mcp_tool_extract_url",
-    "mcp_tool_search", "mcp_tool_ask", "mcp_tool_crawl", "mcp_tool_chunk",
-    "run_mcp_server", "main_cli",
-    "RuneExtractLoader", "RuneExtractTransformer",
-    "RuneExtractReader",
-    "RuneExtractTool",
-    "autogen_extract_tool",
-    "RuneExtractGraphTool", "RuneExtractSearchTool", "RuneExtractAskTool",
-    "rune_extract_function_tool", "rune_extract_search_tool",
-    "RuneExtractAITool", "RuneExtractSearchAITool",
+    # Diff
+    "DiffChange", "DiffResult", "DocumentComparator", "diff_documents",
+    # Layout
     "LayoutElement", "BoundingBox", "LayoutParser",
-    "parse_layout", "get_reading_order",
-    "DiffChange", "DiffResult", "DocumentComparator",
-    "diff_documents", "compare_files",
-    "ONNXEmbeddingModel", "get_onnx_embedding",
-    "StorageConnector", "S3Connector", "GCSConnector", "AzureConnector", "get_storage_connector",
-    "MinHashDeduplicator", "LSHDeduplicator", "EmbeddingDeduplicator",
-    "deduplicate", "deduplicate_documents",
-    "ExtractionServer",
-    "VisionAnalyzer", "ChartInterpretation", "FigureCaption",
-    "describe_image", "interpret_chart", "caption_figure",
+    # Storage
+    "StorageConnector", "S3Connector", "GCSConnector", "AzureConnector",
+    # Graph
     "GraphNode", "GraphEdge", "DocumentGraph", "GraphBuilder",
-    "build_document_graph", "query_graph",
+    # Export
     "extract_from_presigned_url",
-    "TOCEntry", "TOCParser", "extract_toc", "toc_to_markdown", "toc_to_dict", "toc_to_json",
-    "OCRLanguageDetector", "detect_ocr_language", "get_tesseract_langs", "get_ocr_languages",
-    "FastMode", "QualityLevel", "configure_quality",
-    "cleanup", "ChatSession",
+    "ONNXEmbeddingModel",
+    "MinHashDeduplicator", "LSHDeduplicator", "EmbeddingDeduplicator",
+    "deduplicate_embeddings",
+    "KnowledgeBase",
+    # Versioning & Budget & Dedup
+    "IndexVersioning", "BudgetManager", "BudgetConfig",
+    "BudgetExceededError", "DedupEngine", "DedupReport",
+    # Signing
+    "DocumentSigner", "DocumentVerifier", "SignatureInfo",
+    "sign_document", "verify_document", "compute_document_hash",
+    # Server
+    "ExtractionServer", "run_server", "start_extraction_server",
+    "WebSocketHandler",
+    # Quality
+    "QualityLevel", "QualityConfig", "extract_with_quality",
+    "FastMode", "configure_quality",
+    # Export
+    "to_ragas", "to_dspy", "to_haystack", "to_llama_index",
+    "to_jsonl", "ExportFormat",
+    # RAG Fine-Tuning
+    "FineTuneExample", "FineTuneDataset",
+    "generate_fine_tuning_data",
+    # Audit Features
+    "PersistentEmbeddingCache", "IndexPersister", "IndexState",
+    "TieredIndex", "TierConfig",
+    "MultiTenantRAG", "TenantStore",
+    "GraphRAGQuery",
+    "RAGEvalSuite", "EvalQuestion", "EvalResult", "Scorecard",
+    "MiddlewarePipeline", "RAGMiddleware", "LoggingMiddleware",
+    "TimingMiddleware", "CacheMiddleware", "FallbackMiddleware",
+    "apply_middleware",
 ]
 
-from runeextract.core.extraction import (
-    extract, extract_from_bytes, extract_from_string,
-    extract_many, extract_many_with_errors,
-    extract_async, extract_many_async, extract_stream, extract_and_index,
-    extract_crawl,
-)
+# --- Lazy-import proxies for core extraction (most common entry points) ---
+
+
+def extract(*args, **kwargs):
+    from runeextract.core.extraction import extract as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_from_bytes(*args, **kwargs):
+    from runeextract.core.extraction import extract_from_bytes as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_from_string(*args, **kwargs):
+    from runeextract.core.extraction import extract_from_string as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_many(*args, **kwargs):
+    from runeextract.core.extraction import extract_many as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_many_with_errors(*args, **kwargs):
+    from runeextract.core.extraction import extract_many_with_errors as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_async(*args, **kwargs):
+    from runeextract.core.extraction import extract_async as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_many_async(*args, **kwargs):
+    from runeextract.core.extraction import extract_many_async as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_stream(*args, **kwargs):
+    from runeextract.core.extraction import extract_stream as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_and_index(*args, **kwargs):
+    from runeextract.core.extraction import extract_and_index as _fn
+    return _fn(*args, **kwargs)
+
+
+def extract_crawl(*args, **kwargs):
+    from runeextract.core.extraction import extract_crawl as _fn
+    return _fn(*args, **kwargs)
+
 
 # --- True Async Extractor (requires async extra) ---
 
@@ -119,6 +186,36 @@ def RobustRAG(*args, **kwargs):
     return _RR(*args, **kwargs)
 
 
+def KnowledgeBase(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.KnowledgeBase`."""
+    from runeextract.rag.knowledge_base import KnowledgeBase as _KB
+    return _KB(*args, **kwargs)
+
+
+def IndexVersioning(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.IndexVersioning`."""
+    from runeextract.rag.versioning import IndexVersioning as _IV
+    return _IV(*args, **kwargs)
+
+
+def BudgetManager(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.BudgetManager`."""
+    from runeextract.rag.budget import BudgetManager as _BM
+    return _BM(*args, **kwargs)
+
+
+def BudgetConfig(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.BudgetConfig`."""
+    from runeextract.rag.budget import BudgetConfig as _BC
+    return _BC(*args, **kwargs)
+
+
+def DedupEngine(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.DedupEngine`."""
+    from runeextract.rag.dedup_engine import DedupEngine as _DE
+    return _DE(*args, **kwargs)
+
+
 def RAGDebugger(*args, **kwargs):
     """Lazy import for :class:`runeextract.rag.RAGDebugger`."""
     from runeextract.rag.debugger import RAGDebugger as _RD
@@ -135,6 +232,18 @@ def QueryRouter(*args, **kwargs):
     """Lazy import for :class:`runeextract.rag.QueryRouter`."""
     from runeextract.rag.query_router import QueryRouter as _QR
     return _QR(*args, **kwargs)
+
+
+def SmartQueryRouter(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.SmartQueryRouter`."""
+    from runeextract.rag.routing import QueryRouter as _SQR
+    return _SQR(*args, **kwargs)
+
+
+def RouteDecision(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.RouteDecision`."""
+    from runeextract.rag.routing import RouteDecision as _RD
+    return _RD(*args, **kwargs)
 
 
 def QueryAnalyzer(*args, **kwargs):
@@ -647,6 +756,12 @@ def deduplicate_documents(*args, **kwargs):
     return _dd(*args, **kwargs)
 
 
+def deduplicate_embeddings(*args, **kwargs):
+    """Lazy import for :func:`runeextract.dedup.deduplicate_embeddings`."""
+    from runeextract.dedup.minhash import deduplicate_embeddings as _de
+    return _de(*args, **kwargs)
+
+
 # --- WebSocket Server ---
 
 
@@ -809,45 +924,124 @@ def get_ocr_languages(*args, **kwargs):
     return _gol(*args, **kwargs)
 
 
-# --- Fast Mode / Quality Levels ---
+# --- Quality Levels / Fast Mode ---
 
 
-def _lazy_import_quality():
-    """Lazy import for quality module."""
-    from runeextract.quality import FastMode as _FM
+def QualityLevel(*args, **kwargs):
+    """Lazy import for :class:`runeextract.quality.QualityLevel`."""
     from runeextract.quality import QualityLevel as _QL
-    from runeextract.quality import configure_quality as _cq
-    return _FM, _QL, _cq
+    return _QL(*args, **kwargs) if args or kwargs else _QL
 
 
-class _QualityLevel:
-    """Proxy that supports both QualityLevel.HIGH and QualityLevel('high')."""
-    _cls = None
-
-    @classmethod
-    def _get_cls(cls):
-        if cls._cls is None:
-            cls._cls = _lazy_import_quality()[1]
-        return cls._cls
-
-    def __getattr__(self, name):
-        return getattr(self._get_cls(), name)
-
-    def __call__(self, *args, **kwargs):
-        return self._get_cls()(*args, **kwargs)
-
-    def __repr__(self):
-        return repr(self._get_cls())
+def QualityConfig(*args, **kwargs):
+    """Lazy import for :class:`runeextract.quality.QualityConfig`."""
+    from runeextract.quality import QualityConfig as _QC
+    return _QC(*args, **kwargs)
 
 
-QualityLevel = _QualityLevel()
+def extract_with_quality(*args, **kwargs):
+    """Lazy import for :func:`runeextract.quality.extract_with_quality`."""
+    from runeextract.quality import extract_with_quality as _ewq
+    return _ewq(*args, **kwargs)
 
 
 def FastMode(*args, **kwargs):
     """Lazy import for :class:`runeextract.quality.FastMode`."""
-    return _lazy_import_quality()[0](*args, **kwargs)
+    from runeextract.quality import FastMode as _FM
+    return _FM(*args, **kwargs)
 
 
 def configure_quality(*args, **kwargs):
     """Lazy import for :func:`runeextract.quality.configure_quality`."""
-    return _lazy_import_quality()[2](*args, **kwargs)
+    from runeextract.quality import configure_quality as _cq
+    return _cq(*args, **kwargs)
+
+
+# --- Signing ---
+
+
+def DocumentSigner(*args, **kwargs):
+    """Lazy import for :class:`runeextract.signing.DocumentSigner`."""
+    from runeextract.signing import DocumentSigner as _DS
+    return _DS(*args, **kwargs)
+
+
+def DocumentVerifier(*args, **kwargs):
+    """Lazy import for :class:`runeextract.signing.DocumentVerifier`."""
+    from runeextract.signing import DocumentVerifier as _DV
+    return _DV(*args, **kwargs)
+
+
+def sign_document(*args, **kwargs):
+    """Lazy import for :func:`runeextract.signing.sign_document`."""
+    from runeextract.signing import sign_document as _sd
+    return _sd(*args, **kwargs)
+
+
+def verify_document(*args, **kwargs):
+    """Lazy import for :func:`runeextract.signing.verify_document`."""
+    from runeextract.signing import verify_document as _vd
+    return _vd(*args, **kwargs)
+
+
+# --- Server ---
+
+
+def ExtractionServer(*args, **kwargs):
+    """Lazy import for :class:`runeextract.server.ExtractionServer`."""
+    from runeextract.server import ExtractionServer as _ES
+    return _ES(*args, **kwargs)
+
+
+def run_server(*args, **kwargs):
+    """Lazy import for :func:`runeextract.server.run_server`."""
+    from runeextract.server import run_server as _rs
+    return _rs(*args, **kwargs)
+
+
+async def start_extraction_server(*args, **kwargs):
+    """Lazy import for :func:`runeextract.server.start_extraction_server`."""
+    from runeextract.server import start_extraction_server as _ses
+    return await _ses(*args, **kwargs)
+
+
+# --- Export ---
+
+
+def to_ragas(*args, **kwargs):
+    """Lazy import for :func:`runeextract.export.to_ragas`."""
+    from runeextract.export import to_ragas as _tr
+    return _tr(*args, **kwargs)
+
+
+def to_dspy(*args, **kwargs):
+    """Lazy import for :func:`runeextract.export.to_dspy`."""
+    from runeextract.export import to_dspy as _td
+    return _td(*args, **kwargs)
+
+
+def to_haystack(*args, **kwargs):
+    """Lazy import for :func:`runeextract.export.to_haystack`."""
+    from runeextract.export import to_haystack as _th
+    return _th(*args, **kwargs)
+
+
+def to_llama_index(*args, **kwargs):
+    """Lazy import for :func:`runeextract.export.to_llama_index`."""
+    from runeextract.export import to_llama_index as _tli
+    return _tli(*args, **kwargs)
+
+
+# --- RAG Fine-Tuning ---
+
+
+def FineTuneExample(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.fine_tune.FineTuneExample`."""
+    from runeextract.rag.fine_tune import FineTuneExample as _FTE
+    return _FTE(*args, **kwargs)
+
+
+def FineTuneDataset(*args, **kwargs):
+    """Lazy import for :class:`runeextract.rag.fine_tune.FineTuneDataset`."""
+    from runeextract.rag.fine_tune import FineTuneDataset as _FTD
+    return _FTD(*args, **kwargs)

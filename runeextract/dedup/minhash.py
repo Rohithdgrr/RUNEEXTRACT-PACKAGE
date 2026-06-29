@@ -110,6 +110,15 @@ class LSHDeduplicator:
         self._minhash = MinHashDeduplicator(num_perm=num_perm, threshold=threshold)
 
     def deduplicate(self, texts: List[str]) -> Tuple[List[int], List[DuplicateCluster]]:
+        """LSH-based deduplication — faster than :class:`MinHashDeduplicator` when
+        the average bucket size is much smaller than the total document count.
+
+        .. note::
+           The speed-up over plain MinHash only materializes when documents
+           are diverse enough that most LSH buckets contain a small fraction
+           of the corpus.  If all documents land in the same few buckets
+           (highly similar corpus), this degrades to O(n²) inside each bucket.
+        """
         if not texts:
             return [], []
 
@@ -236,8 +245,24 @@ def deduplicate(texts: List[str], strategy: str = "minhash", **kwargs) -> Tuple[
 
     deduper = strategies[strategy](**kwargs)
     if strategy == "embedding":
-        raise ValueError("Use deduplicate_embeddings() for embedding strategy")
+        raise ValueError(
+            "Use deduplicate_embeddings() for embedding strategy. "
+            "deduplicate() expects text input."
+        )
     return deduper.deduplicate(texts)
+
+
+def deduplicate_embeddings(embeddings: List[List[float]], threshold: float = 0.92) -> Tuple[List[int], List[DuplicateCluster]]:
+    """Deduplicate using embedding vectors and cosine similarity.
+
+    Args:
+        embeddings: List of embedding vectors.
+        threshold: Cosine similarity threshold (default 0.92).
+
+    Returns:
+        Tuple of (unique_indices, duplicate_clusters)
+    """
+    return EmbeddingDeduplicator(threshold=threshold).deduplicate(embeddings)
 
 
 def deduplicate_documents(texts: List[str], strategy: str = "minhash", **kwargs) -> Tuple[List[int], List[DuplicateCluster]]:

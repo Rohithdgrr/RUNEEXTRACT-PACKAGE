@@ -20,16 +20,11 @@ from runeextract.models.chat_session import ChatSession as _ChatSession
 
 logger = logging.getLogger(__name__)
 
-_document_shared_ai = None
-
 def _get_document_ai(ai_processor=None):
-    global _document_shared_ai
     if ai_processor is not None:
         return ai_processor
-    if _document_shared_ai is None:
-        from runeextract.processors.ai import AIProcessor
-        _document_shared_ai = AIProcessor()
-    return _document_shared_ai
+    from runeextract.processors.ai import AIProcessor
+    return AIProcessor()
 
 
 class ChatSession(_ChatSession):
@@ -47,6 +42,8 @@ class Document:
     document_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     _chunks: Optional[List[Chunk]] = field(default=None, repr=False)
     _chunk_params: Optional[Dict[str, Any]] = field(default=None, repr=False)
+    _chunk_embeddings: Optional[List[List[float]]] = field(default=None, repr=False)
+    _ai: Optional[Any] = field(default=None, repr=False)
 
     def token_count(self, encoding_name: str = "cl100k_base") -> int:
         enc = _get_token_encoding(encoding_name)
@@ -484,7 +481,8 @@ class Document:
                 on_insert(cid)
         return collection
 
-    def to_faiss(self, index_path: str = "./faiss_index", embedding_dim: int = 384):
+    def to_faiss(self, index_path: str = "./faiss_index", embedding_dim: int = 384,
+                 embedder: Optional[Callable[[List[str]], List[List[float]]]] = None):
         try:
             import faiss
             import numpy as np
@@ -498,8 +496,24 @@ class Document:
         if self._chunks is None:
             self.chunks()
 
-        rng = np.random.default_rng(42)
-        embeddings = rng.random((len(self._chunks), embedding_dim), dtype=np.float32)
+        if embedder:
+            texts = [c.text for c in self._chunks]
+            embeddings = np.array(embedder(texts), dtype=np.float32)
+            if embeddings.ndim == 1:
+                embeddings = embeddings.reshape(1, -1)
+            embedding_dim = embeddings.shape[1]
+        elif self._ai is not None:
+            ai = self._get_ai()
+            texts = [c.text for c in self._chunks]
+            embeddings = np.array(ai.embed(texts), dtype=np.float32)
+            embedding_dim = embeddings.shape[1]
+        else:
+            raise ValueError(
+                "to_faiss() requires embeddings. Pass embedder= (callable) or "
+                "set Document._ai to an AIProcessor instance.\n\n"
+                "  doc.to_faiss('my_index', embedder=my_embed_fn)\n\n"
+                "Or for ChromaDB (recommended): doc.to_chromadb(collection_name='docs')"
+            )
 
         index = faiss.IndexFlatL2(embedding_dim)
         index.add(embeddings)
@@ -523,7 +537,31 @@ class Document:
         return index, metadata_list
 
     def _get_ai(self, ai_processor=None):
-        return _get_document_ai(ai_processor)
+        if ai_processor is not None:
+            return ai_processor
+        if self._ai is not None:
+            return self._ai
+        from runeextract.exceptions import ExtractionError
+        from runeextract.processors.ai import AIProcessor
+        try:
+            return AIProcessor()
+        except ExtractionError:
+            return None
+
+    def _ensure_embeddings(self, ai_processor=None) -> None:
+        if self._chunk_embeddings is not None:
+            return
+        if not self._chunks:
+            self.chunks()
+        if not self._chunks:
+            self._chunk_embeddings = []
+            return
+        ai = self._get_ai(ai_processor)
+        if ai is None:
+            self._chunk_embeddings = []
+            return
+        chunk_texts = [c.text for c in self._chunks]
+        self._chunk_embeddings = ai.embed(chunk_texts)
 
     def search(self, query: str, top_k: int = 5, mode: str = "hybrid",
                metadata_filter: Optional[Dict[str, Any]] = None,
@@ -548,16 +586,30 @@ class Document:
 
         if mode in ("dense", "hybrid"):
             ai = self._get_ai(ai_processor)
-            query_embedding = ai.embed(query)[0]
-            import numpy as np
-            chunk_texts = [c.text for c in chunks]
-            chunk_embeddings = ai.embed(chunk_texts)
-            query_vec = np.array(query_embedding, dtype=np.float32)
-            chunk_vecs = np.array(chunk_embeddings, dtype=np.float32)
-            norms = np.linalg.norm(chunk_vecs, axis=1) * np.linalg.norm(query_vec)
-            dense_scores = np.dot(chunk_vecs, query_vec) / np.maximum(norms, 1e-10)
-            for i, s in enumerate(dense_scores):
-                scores[id(chunks[i])] = s
+            if ai is None:
+                if mode == "dense":
+                    return []
+            else:
+                query_embedding = ai.embed(query)[0]
+                import numpy as np
+                self._ensure_embeddings(ai_processor)
+                if not self._chunk_embeddings:
+                    if mode == "dense":
+                        return []
+                else:
+                    if len(chunks) == len(self._chunks):
+                        chunk_embeddings = self._chunk_embeddings
+                    else:
+                        chunk_idx = {id(c): i for i, c in enumerate(self._chunks)}
+                        chunk_embeddings = [
+                            self._chunk_embeddings[chunk_idx[id(c)]] for c in chunks
+                        ]
+                    query_vec = np.array(query_embedding, dtype=np.float32)
+                    chunk_vecs = np.array(chunk_embeddings, dtype=np.float32)
+                    norms = np.linalg.norm(chunk_vecs, axis=1) * np.linalg.norm(query_vec)
+                    dense_scores = np.dot(chunk_vecs, query_vec) / np.maximum(norms, 1e-10)
+                    for i, s in enumerate(dense_scores):
+                        scores[id(chunks[i])] = s
 
         if mode in ("sparse", "hybrid"):
             try:
@@ -683,16 +735,14 @@ class Document:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, partial(self.summary, max_words=max_words, ai_processor=ai_processor))
 
-    def keywords(self, top_n: int = 10, top_k: Optional[int] = None, ai_processor=None) -> List[str]:
-        if top_k is not None:
-            top_n = top_k
+    def keywords(self, top_k: int = 10, ai_processor=None) -> List[str]:
         ai = self._get_ai(ai_processor)
-        return ai.extract_keywords(self.text, top_n=top_n)
+        return ai.extract_keywords(self.text, top_n=top_k)
 
-    async def akeywords(self, top_n: int = 10, top_k: Optional[int] = None, ai_processor=None) -> List[str]:
+    async def akeywords(self, top_k: int = 10, ai_processor=None) -> List[str]:
         from functools import partial
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, partial(self.keywords, top_n=top_n, top_k=top_k, ai_processor=ai_processor))
+        return await loop.run_in_executor(None, partial(self.keywords, top_k=top_k, ai_processor=ai_processor))
 
     def entities(self, ai_processor=None) -> List[Dict[str, str]]:
         ai = self._get_ai(ai_processor)
@@ -703,24 +753,20 @@ class Document:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, partial(self.entities, ai_processor=ai_processor))
 
-    def questions(self, n: int = 5, num: Optional[int] = None, ai_processor=None) -> List[str]:
-        if num is not None:
-            n = num
+    def questions(self, n: int = 5, ai_processor=None) -> List[str]:
         ai = self._get_ai(ai_processor)
         return ai.generate_questions(self.text, n=n)
 
-    async def aquestions(self, n: int = 5, num: Optional[int] = None, ai_processor=None) -> List[str]:
+    async def aquestions(self, n: int = 5, ai_processor=None) -> List[str]:
         from functools import partial
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, partial(self.questions, n=n, num=num, ai_processor=ai_processor))
+        return await loop.run_in_executor(None, partial(self.questions, n=n, ai_processor=ai_processor))
 
-    def flashcards(self, n: int = 10, num: Optional[int] = None, ai_processor=None) -> List[Dict[str, str]]:
-        if num is not None:
-            n = num
+    def flashcards(self, n: int = 10, ai_processor=None) -> List[Dict[str, str]]:
         ai = self._get_ai(ai_processor)
         return ai.generate_flashcards(self.text, n=n)
 
-    async def aflashcards(self, n: int = 10, num: Optional[int] = None, ai_processor=None) -> List[Dict[str, str]]:
+    async def aflashcards(self, n: int = 10, ai_processor=None) -> List[Dict[str, str]]:
         from functools import partial
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, partial(self.flashcards, n=n, num=num, ai_processor=ai_processor))
+        return await loop.run_in_executor(None, partial(self.flashcards, n=n, ai_processor=ai_processor))

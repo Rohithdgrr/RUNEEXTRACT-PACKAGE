@@ -59,7 +59,7 @@ ai = ["openai>=1.0.0,<2.0.0"]
 ai-anthropic = ["anthropic>=0.30.0,<1.0.0"]
 ai-gemini = ["google-generativeai>=0.6.0,<1.0.0"]
 # Media
-youtube = ["youtube-transcript-api>=0.6.0,<1.0.0", "yt-dlp>=2023.0.0,<2025.0.0"]
+youtube = ["youtube-transcript-api>=0.6.0,<1.0.0", "yt-dlp>=2024.1.0"]
 notion = ["requests>=2.28.0,<3.0.0"]
 epub = ["EbookLib>=0.18,<1.0.0", "beautifulsoup4>=4.12.0,<5.0.0", "lxml>=4.9.0,<6.0.0"]
 audio = ["openai-whisper>=20231117,<20250000"]
@@ -74,8 +74,10 @@ vector-stores = ["chromadb>=0.4.0,<1.0.0", "faiss-cpu>=1.7.0,<2.0.0"]
 structured = ["pydantic>=2.0.0,<3.0.0"]
 # Protected files
 protected = ["msoffcrypto-tool>=5.0.0,<6.0.0"]
-# WebSocket server
-server = ["websockets>=12.0.0,<14.0.0"]
+# Document signing
+signing = ["cryptography>=41.0.0,<45.0.0"]
+# WebSocket / HTTP server
+server = ["aiohttp>=3.9.0,<4.0.0"]
 # Agent / MCP
 mcp = ["mcp>=1.0.0,<2.0.0"]
 # Heavy / optional format support (moved out of core)
@@ -84,12 +86,13 @@ xml = ["lxml>=4.9.0,<6.0.0"]
 pdf-alt = ["pdfplumber>=0.10.0,<1.0.0"]
 # Meta extras
 all = [
-    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,rag,embeddings,vector-stores,audio,video,structured,protected,server,mcp,dataframe,xml,pdf-alt]",
+    "runeextract[ocr,ai,ai-anthropic,ai-gemini,youtube,notion,epub,async,rag,embeddings,vector-stores,audio,video,structured,protected,signing,server,mcp,dataframe,xml,pdf-alt]",
 ]
 auto-rag = ["runeextract[rag,embeddings,vector-stores]"]
 dev = [
     "pytest>=7.4.0,<9.0.0",
     "pytest-cov>=4.1.0,<7.0.0",
+    "pytest-asyncio>=0.21.0,<3.0.0",
     "ruff>=0.1.0,<1.0.0",
 ]
 

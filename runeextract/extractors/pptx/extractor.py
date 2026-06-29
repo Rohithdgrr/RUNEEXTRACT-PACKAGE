@@ -4,9 +4,8 @@ PPTX extractor using python-pptx.
 
 import logging
 from pptx import Presentation
-from pptx.util import Inches
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from io import BytesIO
 from runeextract.core.extractor import BaseExtractor
 from runeextract.models.document import Document as RuneDocument, Table, Image
@@ -19,7 +18,8 @@ class PptxExtractor(BaseExtractor):
 
     def extract(self, file_path: str) -> RuneDocument:
         self.validate_file(file_path)
-        prs = Presentation(file_path)
+        password = self.options.get("password")
+        prs = self._open_pptx(file_path, password)
         text = ""
         tables: List[Table] = []
         images: List[Image] = []
@@ -70,6 +70,31 @@ class PptxExtractor(BaseExtractor):
         text = self.clean_text(text)
         return RuneDocument(text=text, tables=tables, images=images, metadata=metadata,
                             source_type="pptx", source_path=file_path)
+
+    @staticmethod
+    def _open_pptx(file_path: str, password: Optional[str] = None):
+        if not password:
+            return Presentation(file_path)
+        try:
+            import msoffcrypto
+        except ImportError:
+            raise ImportError(
+                "msoffcrypto-tool is required to open password-protected PPTX files. "
+                "Install with: pip install msoffcrypto-tool"
+            )
+        from runeextract.exceptions import WrongPasswordError
+        decrypted = BytesIO()
+        with open(file_path, "rb") as f:
+            office_file = msoffcrypto.OfficeFile(f)
+            try:
+                office_file.load_key(password=password)
+            except (msoffcrypto.exceptions.InvalidKeyError, msoffcrypto.exceptions.DecryptionError) as exc:
+                raise WrongPasswordError(
+                    f"Failed to decrypt PPTX: {exc}",
+                ) from exc
+            office_file.decrypt(decrypted)
+        decrypted.seek(0)
+        return Presentation(decrypted)
 
     def _extract_metadata(self, prs: Presentation) -> Dict[str, Any]:
         metadata = {}

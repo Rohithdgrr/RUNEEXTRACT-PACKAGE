@@ -101,6 +101,42 @@ def call_stream(proc, system, user, max_tokens=None):
         raise ExtractionError(f"AI streaming failed: {safe_msg[:500]}", error_code="E031")
 
 
+_VISION_MODELS = {"gpt-4o", "gpt-4o-2024-08-06", "gpt-4o-mini", "gpt-4-vision-preview",
+                   "gpt-4-turbo", "llava", "llava-hf"}
+
+
+def supports_vision(model: str) -> bool:
+    return any(v in model.lower() for v in _VISION_MODELS)
+
+
+def vision_call(proc, system, user, images, max_tokens=None):
+    content = [{"type": "text", "text": user}]
+    for img_bytes, img_fmt in images:
+        import base64
+        b64 = base64.b64encode(img_bytes).decode("ascii")
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/{img_fmt};base64,{b64}"},
+        })
+    kwargs = {
+        "model": proc.model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": content},
+        ],
+        "temperature": proc.temperature,
+        "max_tokens": max_tokens or proc.max_tokens,
+        "timeout": getattr(proc, "_request_timeout", 60),
+    }
+    resp = proc._call_with_retry(
+        lambda: proc.client.chat.completions.create(**kwargs),
+        lambda r: (r.usage.prompt_tokens if r.usage else 0,
+                   r.usage.completion_tokens if r.usage else 0),
+        provider_label=proc.provider.title(),
+    )
+    return resp.choices[0].message.content.strip()
+
+
 def embed(proc, texts, model=None):
     model = model or ("text-embedding-3-small" if proc.provider == "openai" else "nomic-embed-text")
     try:

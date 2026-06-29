@@ -1,6 +1,6 @@
 # RuneExtract
 
-**One extraction API for every document type.** v0.7.0
+**One extraction API for every document type.** v0.8.0
 
 RuneExtract is a universal document extraction library that provides a single, consistent API for extracting content from any file type — PDFs, DOCX, HTML, images, audio, video, YouTube, Notion, and more.
 
@@ -117,7 +117,7 @@ print(doc.to_json(indent=2))
 fixed_size, by_page, by_heading, semantic, by_token, sentence_window, hierarchical (RAPTOR)
 
 ### AI Providers (12)
-OpenAI, OpenRouter, Anthropic, Gemini, Ollama, Azure, Bedrock, Groq, Together, DeepSeek, Mistral, Local (transformers)
+OpenAI, OpenRouter, Anthropic, Gemini, Ollama, Azure, Bedrock, Groq, Together, DeepSeek, Mistral, Local
 
 ### Streaming & Multi-turn Chat
 - **Streaming AI**: `doc.ask_stream()` yields tokens as they arrive from the LLM
@@ -133,13 +133,21 @@ OpenAI, OpenRouter, Anthropic, Gemini, Ollama, Azure, Bedrock, Groq, Together, D
 - **Query router** (intent classification, filter extraction, query decomposition in `auto_rag(..., query_router=True)`)
 - **Context packer** (token-budget-aware chunk packing via `rag.query(..., max_tokens=2000)`)
 - **Adaptive hybrid search** (query-aware dense/sparse weight tuning)
+- **KnowledgeBase** — one-shot `kb = KnowledgeBase("docs/").build(); kb.ask("question")`
+- **Index Versioning** — SQLite-backed snapshots, changelog, rollback
+- **Budget Manager** — per-query/per-day cost/latency caps with auto-degrade
+- **Dedup Engine** — corpus-level duplicate detection (MinHash/LSH/Embedding)
+- **Self-healing repair** — `kb.repair()` auto-fixes orphans, metadata, dimension mismatches
+- **`runeextract doctor`** — CLI diagnostics for RAG index health
+- **`runeextract eval`** — CLI evaluation with 6 metrics, baseline comparison, HTML reports
+- **Smart Chunk Optimizer** — auto-selects `by_page`/`fixed_size`/`by_heading`/`semantic` from doc samples
 - Metadata filtering
 - ChromaDB / FAISS vector stores
 - Contextual compression
 - Extract-and-index pipeline
 - Auto-RAG (zero-config pipeline)
 - Hierarchical / RAPTOR chunking (with parent-child links)
-- Multi-modal RAG (text + tables + images)
+- Multi-modal RAG (text + tables + images, auto-detect vision models)
 - Citation engine (auto-cite with `[N]` markers)
 
 ### Structured Extraction
@@ -331,9 +339,9 @@ File/URL → Router (magic-byte detection) → Extractor → Document (unified s
 | `core/` | Router, extractor base, cache, registry, streaming, async |
 | `models/` | Document, Chunk, Table, Image, chunking, ChatSession |
 | `processors/` | AIProcessor (reduced), OCR, provider registry |
-| `providers/` | 6 handler modules for 12 providers |
+| `providers/` | 6 handler modules for 12 providers (OpenAI, Anthropic, Gemini, Ollama, Azure, Bedrock, Groq, Together, DeepSeek, Mistral, OpenRouter, Local) |
 | `extractors/` | 14 format extractors |
-| `rag/` | Chunking, search, vector stores, auto-RAG, evaluation |
+| `rag/` | Chunking, search, vector stores, auto-RAG, evaluation, KnowledgeBase, versioning, budget, dedup, doctor, eval CLI |
 | `transform/` | DAG pipeline with 9 step types |
 | `vision/` | Image/chart/figure analysis |
 | `web/` | Crawler, sitemap, RSS/Atom feed |
@@ -344,7 +352,7 @@ File/URL → Router (magic-byte detection) → Extractor → Document (unified s
 | `embeddings/` | ONNX on-device embedding models |
 | `storage/` | S3, GCS, Azure Blob connectors |
 | `benchmarks/` | Performance benchmarks vs competitors |
-| `dedup/` | MinHash, LSH, embedding deduplication |
+| `dedup/` | MinHash, LSH, embedding deduplication (low-level); see `rag/` for corpus-level DedupEngine |
 | `server/` | WebSocket extraction server |
 
 ## License

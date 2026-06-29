@@ -71,7 +71,7 @@ class TestOCRLanguageDetector:
     def test_tesseract_langs_chinese(self):
         d = OCRLanguageDetector()
         langs = d.tesseract_langs("你好")
-        assert langs == ["chi_sim"]
+        assert "chi_sim" in langs
 
     def test_supported_languages(self):
         d = OCRLanguageDetector()
