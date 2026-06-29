@@ -8,7 +8,7 @@ from runeextract.config import get_config, set_config
 from runeextract.exceptions import ExtractionError, PathTraversalError, ExtractionTimeoutError, WrongPasswordError
 from runeextract.models.document import Document, ChunkingStrategy, ChatSession
 
-__version__ = "0.8.0"
+__version__ = "0.8.1"
 __all__ = [
     # Core extraction
     "extract", "extract_many", "extract_many_with_errors",
