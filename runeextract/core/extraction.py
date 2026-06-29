@@ -332,8 +332,8 @@ def extract_from_bytes(
         if fd is not None:
             try:
                 os.close(fd)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("Failed to close temp file descriptor %s: %s", fd, e)
 
 
 def extract_from_string(

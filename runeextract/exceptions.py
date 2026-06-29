@@ -160,6 +160,46 @@ class ImageSizeError(ExtractionError):
         )
 
 
+# --- Cost / Budget Errors ---
+
+
+class CostLimitExceededError(ExtractionError):
+    """Raised when the AI processing cost limit is exceeded."""
+    def __init__(self, cost: float, limit: float):
+        super().__init__(
+            f"Cost limit reached: ${cost:.2f} / ${limit:.2f}",
+            error_code="E050"
+        )
+
+
+class EmbeddingError(ExtractionError):
+    """Raised when embedding generation fails."""
+    def __init__(self, message: str = "Embedding generation failed", model: str = ""):
+        suffix = f" ({model})" if model else ""
+        super().__init__(f"{message}{suffix}", error_code="E051")
+
+
+class IndexError(ExtractionError):
+    """Raised when a vector index operation fails."""
+    def __init__(self, message: str = "Index operation failed", detail: str = ""):
+        suffix = f": {detail}" if detail else ""
+        super().__init__(f"{message}{suffix}", error_code="E052")
+
+
+class TenantError(ExtractionError):
+    """Raised when a multi-tenant isolation error occurs."""
+    def __init__(self, message: str = "Tenant operation failed", tenant_id: str = ""):
+        suffix = f" (tenant: {tenant_id})" if tenant_id else ""
+        super().__init__(f"{message}{suffix}", error_code="E053")
+
+
+class StorageError(ExtractionError):
+    """Raised when a cloud storage operation fails."""
+    def __init__(self, message: str = "Storage operation failed", backend: str = ""):
+        suffix = f" ({backend})" if backend else ""
+        super().__init__(f"{message}{suffix}", error_code="E054")
+
+
 # --- Circuit Breaker ---
 
 

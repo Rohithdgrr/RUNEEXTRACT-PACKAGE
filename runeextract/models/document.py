@@ -100,8 +100,6 @@ class Document:
         parent_strategy: str = "fixed_size",
         leaf_size: Optional[int] = None,
     ) -> List[Chunk]:
-        if leaf_size is not None:
-            child_size = leaf_size
         """Build parent-child hierarchical chunks for RAPTOR-style retrieval.
 
         Creates two levels:
@@ -121,6 +119,8 @@ class Document:
         Returns:
             Flat list of Chunk objects at both child and parent levels.
         """
+        if leaf_size is not None:
+            child_size = leaf_size
         from copy import deepcopy
 
         text = self.text

@@ -484,7 +484,7 @@ class AIProcessor:
         return findings
 
     def _estimate_token_count(self, text: str) -> int:
-        from runeextract.models.document import _get_token_encoding
+        from runeextract.models.types import _get_token_encoding
         enc = _get_token_encoding("cl100k_base")
         if enc:
             return len(enc.encode(text))

@@ -60,8 +60,8 @@ def _check_zip_bomb(file_path: str) -> None:
                     f"Archive compression ratio {uncompressed // compressed}x exceeds limit {_MAX_ZIP_RATIO}x",
                     file_path=file_path
                 )
-    except (zipfile.BadZipFile, OSError):
-        pass
+    except (zipfile.BadZipFile, OSError) as e:
+        logger.debug("Not a valid ZIP for bomb check: %s", e)
 
 
 def _detect_by_magic(file_path: str) -> Optional[str]:
@@ -104,8 +104,8 @@ def _detect_by_magic(file_path: str) -> Optional[str]:
                     return '.xlsx'
                 if 'ppt/presentation.xml' in names:
                     return '.pptx'
-        except (zipfile.BadZipFile, OSError):
-            pass
+        except (zipfile.BadZipFile, OSError) as e:
+            logger.debug("Not a known OOXML format: %s", e)
         return '.zip'
 
     # Check for OLE2 (old .doc/.ppt/.xls)

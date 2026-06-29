@@ -114,8 +114,8 @@ class VideoExtractor(BaseExtractor):
                 temp_audio = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
                 temp_audio.close()
                 subprocess.run(
-                    ["ffmpeg", "-i", file_path, "-vn", "-acodec", "pcm_s16le",
-                     "-ar", "16000", "-ac", "1", temp_audio.name],
+                    ["ffmpeg", "-i", "./" + file_path, "-vn", "-acodec", "pcm_s16le",
+                     "-ar", "16000", "-ac", "1", "--", temp_audio.name],
                     capture_output=True, check=True,
                 )
 
@@ -154,14 +154,14 @@ class VideoExtractor(BaseExtractor):
             if temp_audio and os.path.exists(temp_audio.name):
                 try:
                     os.unlink(temp_audio.name)
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.debug("Failed to remove temp audio file: %s", e)
 
         try:
             stat = os.stat(file_path)
             metadata["file_size"] = stat.st_size
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug("Failed to stat video file: %s", e)
         metadata["format"] = ext.lstrip(".")
 
         text = self.clean_text(text)

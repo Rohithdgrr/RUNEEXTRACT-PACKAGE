@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Callable, Tuple, Union
 
-from runeextract.utils.maturity import experimental, beta
+from runeextract.utils.maturity import experimental
 
 logger = logging.getLogger(__name__)
 

@@ -15,25 +15,25 @@ import time
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union, Callable
 
-from runeextract import extract, extract_many
+from runeextract import extract
 from runeextract.models.document import Document, ChunkingStrategy
 from runeextract.processors.ai import AIProcessor
 from runeextract.rag.types import RAGResult, Citation, ChunkWithScore
 from runeextract.rag.retriever import ChromaRetriever, FAISSRetriever
 from runeextract.rag.compressor import ContextualCompressor
-from runeextract.rag.hierarchical import HierarchicalChunker, SummaryNode, HierarchicalResult
+from runeextract.rag.hierarchical import HierarchicalChunker
 from runeextract.exceptions import DependencyMissingError
 from runeextract.utils.maturity import beta
 from runeextract.rag.confidence import ConfidenceScorer
 from runeextract.rag.semantic_cache import SemanticCache
 from runeextract.rag.cache import RAGCache
-from runeextract.rag.streaming import StreamingRAG, StreamEvent, StreamEventType
+from runeextract.rag.streaming import StreamingRAG
 from runeextract.rag.analytics import RAGAnalytics
 from runeextract.rag.routing import QueryRouter as RouterV2
 from runeextract.rag.multilingual import MultilingualRAG
 from runeextract.rag.reasoning import ChainOfThoughtReasoner
-from runeextract.rag.templates import DomainConfig, DomainTemplates
-from runeextract.rag.embedding_selector import resolve_embedding, get_domain_embedding
+from runeextract.rag.templates import DomainTemplates
+from runeextract.rag.embedding_selector import resolve_embedding
 from runeextract.rag.query_router import QueryRouter as QueryRouterV2, QueryIntent
 from runeextract.rag.context_packer import ContextPacker, PackedContext
 
@@ -699,7 +699,8 @@ class AutoRAG:
         
         # 🚀 Feature 5: Cost limit enforcement
         if self.cost_limit and self._total_cost >= self.cost_limit:
-            raise Exception(f"💰 Cost limit reached: ${self._total_cost:.2f} / ${self.cost_limit:.2f}")
+            from runeextract.exceptions import CostLimitExceededError
+            raise CostLimitExceededError(cost=self._total_cost, limit=self.cost_limit)
         
         # 🚀 Feature 1: Adaptive Intelligence - Auto-tune parameters
         if self.intelligence == "adaptive":
@@ -915,9 +916,10 @@ class AutoRAG:
             ]
 
         # Check retriever circuit breaker
-        if self._retriever_cb_open:
-            logger.warning("Retriever circuit breaker open, returning empty")
-            return []
+        with self._lock:
+            if self._retriever_cb_open:
+                logger.warning("Retriever circuit breaker open, returning empty")
+                return []
 
         # Phase 1: Multi-Level Cache — check search cache first
         cached = self._rag_cache.get_search(query, top_k, metadata_filter=metadata_filter)
@@ -946,10 +948,12 @@ class AutoRAG:
                 text_chunks = retriever.query(query_embedding[0], top_k=top_k)
             self._retriever_failures = 0
         except Exception as exc:
-            self._retriever_failures += 1
+            with self._lock:
+                self._retriever_failures += 1
+                failures = self._retriever_failures
             logger.warning("Retriever query failed (%d/%d): %s",
-                           self._retriever_failures, self._retriever_cb_threshold, exc)
-            if self._retriever_failures >= self._retriever_cb_threshold:
+                           failures, self._retriever_cb_threshold, exc)
+            if failures >= self._retriever_cb_threshold:
                 self._retriever_cb_open = True
                 logger.error("Retriever circuit breaker OPEN — falling back to keyword mode")
             return []
@@ -1162,8 +1166,8 @@ class AutoRAG:
                     dummy_doc.to_faiss(
                         index_path=os.path.join(self.persist_directory, "faiss_index"),
                     )
-            except ImportError:
-                pass
+            except ImportError as e:
+                logger.debug("Optional vector store dependency not installed: %s", e)
 
         self._hierarchical_chunker = chunker
         logger.info(f"Built hierarchical tree: {len(all_nodes)} nodes across {max(n.level for n in all_nodes) + 1} levels")

@@ -79,295 +79,6 @@ __all__ = [
     "apply_middleware",
 ]
 
-# --- Lazy-import proxies for core extraction (most common entry points) ---
-
-
-def extract(*args, **kwargs):
-    from runeextract.core.extraction import extract as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_from_bytes(*args, **kwargs):
-    from runeextract.core.extraction import extract_from_bytes as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_from_string(*args, **kwargs):
-    from runeextract.core.extraction import extract_from_string as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_many(*args, **kwargs):
-    from runeextract.core.extraction import extract_many as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_many_with_errors(*args, **kwargs):
-    from runeextract.core.extraction import extract_many_with_errors as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_async(*args, **kwargs):
-    from runeextract.core.extraction import extract_async as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_many_async(*args, **kwargs):
-    from runeextract.core.extraction import extract_many_async as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_stream(*args, **kwargs):
-    from runeextract.core.extraction import extract_stream as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_and_index(*args, **kwargs):
-    from runeextract.core.extraction import extract_and_index as _fn
-    return _fn(*args, **kwargs)
-
-
-def extract_crawl(*args, **kwargs):
-    from runeextract.core.extraction import extract_crawl as _fn
-    return _fn(*args, **kwargs)
-
-
-# --- True Async Extractor (requires async extra) ---
-
-
-async def extract_async_url(url: str, **kwargs):
-    from runeextract.core.async_extractor import extract_async_url as _e
-    return await _e(url, **kwargs)
-
-
-async def extract_many_async_url(urls: list, **kwargs):
-    from runeextract.core.async_extractor import extract_many_async_url as _e
-    return await _e(urls, **kwargs)
-
-
-async def batch_process(items: list, fn, **kwargs):
-    from runeextract.core.async_extractor import batch_process as _b
-    return await _b(items, fn, **kwargs)
-
-
-def ProcessPoolExtractor(**kwargs):
-    from runeextract.core.async_extractor import ProcessPoolExtractor as _P
-    return _P(**kwargs)
-
-
-async def cleanup():
-    from runeextract.core.async_extractor import cleanup as _c
-    return await _c()
-
-
-
-
-def AutoRAG(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.AutoRAG`."""
-    from runeextract.rag.auto_pipeline import AutoRAG as _AutoRAG
-    return _AutoRAG(*args, **kwargs)
-
-
-def auto_rag(*args, **kwargs):
-    """Lazy import for :func:`runeextract.rag.auto_rag`."""
-    from runeextract.rag.auto_pipeline import auto_rag as _auto_rag
-    return _auto_rag(*args, **kwargs)
-
-
-def instant_rag(*args, **kwargs):
-    """Lazy import for :func:`runeextract.rag.instant_rag`."""
-    from runeextract.rag.instant import instant_rag as _instant_rag
-    return _instant_rag(*args, **kwargs)
-
-
-def RobustRAG(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.RobustRAG`."""
-    from runeextract.rag.robust_rag import RobustRAG as _RR
-    return _RR(*args, **kwargs)
-
-
-def KnowledgeBase(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.KnowledgeBase`."""
-    from runeextract.rag.knowledge_base import KnowledgeBase as _KB
-    return _KB(*args, **kwargs)
-
-
-def IndexVersioning(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.IndexVersioning`."""
-    from runeextract.rag.versioning import IndexVersioning as _IV
-    return _IV(*args, **kwargs)
-
-
-def BudgetManager(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.BudgetManager`."""
-    from runeextract.rag.budget import BudgetManager as _BM
-    return _BM(*args, **kwargs)
-
-
-def BudgetConfig(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.BudgetConfig`."""
-    from runeextract.rag.budget import BudgetConfig as _BC
-    return _BC(*args, **kwargs)
-
-
-def DedupEngine(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.DedupEngine`."""
-    from runeextract.rag.dedup_engine import DedupEngine as _DE
-    return _DE(*args, **kwargs)
-
-
-def RAGDebugger(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.RAGDebugger`."""
-    from runeextract.rag.debugger import RAGDebugger as _RD
-    return _RD(*args, **kwargs)
-
-
-def ConfidenceScorer(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.ConfidenceScorer`."""
-    from runeextract.rag.confidence import ConfidenceScorer as _CS
-    return _CS(*args, **kwargs)
-
-
-def QueryRouter(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.QueryRouter`."""
-    from runeextract.rag.query_router import QueryRouter as _QR
-    return _QR(*args, **kwargs)
-
-
-def SmartQueryRouter(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.SmartQueryRouter`."""
-    from runeextract.rag.routing import QueryRouter as _SQR
-    return _SQR(*args, **kwargs)
-
-
-def RouteDecision(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.RouteDecision`."""
-    from runeextract.rag.routing import RouteDecision as _RD
-    return _RD(*args, **kwargs)
-
-
-def QueryAnalyzer(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.query_analyzer.QueryAnalyzer`."""
-    from runeextract.rag.query_analyzer import QueryAnalyzer as _QA
-    return _QA(*args, **kwargs)
-
-
-# --- Tier 3 Security: lazy imports ---
-
-
-def scan_secrets(text: str) -> list:
-    """Scan text for API keys, tokens, passwords, and other secrets."""
-    from runeextract.utils.secrets import scan_secrets as _scan
-    return _scan(text)
-
-
-def redact_secrets(text: str, findings: list) -> str:
-    """Redact detected secrets from text using finding positions."""
-    from runeextract.utils.secrets import redact_secrets as _redact
-    return _redact(text, findings)
-
-
-def MemoryProfiler(warn_mb: float = 500.0, limit_mb: float = 0.0, enabled: bool = True):
-    """Create a MemoryProfiler for profiling extraction memory usage."""
-    from runeextract.utils.memory import MemoryProfiler as _MP
-    return _MP(warn_mb=warn_mb, limit_mb=limit_mb, enabled=enabled)
-
-
-def DifferentialPrivacyEngine(epsilon: float = 1.0, delta: float = 0.0):
-    """Create a DifferentialPrivacyEngine for private PII redaction."""
-    from runeextract.utils.privacy import DifferentialPrivacyEngine as _DP
-    return _DP(epsilon=epsilon, delta=delta)
-
-
-def SecretFinding(*args, **kwargs):
-    """Lazy import for SecretFinding dataclass."""
-    from runeextract.utils.secrets import SecretFinding as _SF
-    return _SF(*args, **kwargs)
-
-
-# --- Structured Extraction ---
-
-
-def StructuredExtractor(*args, **kwargs):
-    """Lazy import for :class:`runeextract.structured.StructuredExtractor`."""
-    from runeextract.structured.extractor import StructuredExtractor as _SE
-    return _SE(*args, **kwargs)
-
-
-def extract_structured(*args, **kwargs):
-    """Lazy import for :func:`runeextract.structured.extract_structured`."""
-    from runeextract.structured.extractor import extract_structured as _es
-    return _es(*args, **kwargs)
-
-
-# --- Citation Engine ---
-
-
-def CitationEngine(*args, **kwargs):
-    """Lazy import for :class:`runeextract.citation.CitationEngine`."""
-    from runeextract.citation.engine import CitationEngine as _CE
-    return _CE(*args, **kwargs)
-
-
-def CitationResult(*args, **kwargs):
-    """Lazy import for :class:`runeextract.citation.CitationResult`."""
-    from runeextract.citation.engine import CitationResult as _CR
-    return _CR(*args, **kwargs)
-
-
-def cite_document(*args, **kwargs):
-    """Lazy import for :func:`runeextract.citation.cite_document`."""
-    from runeextract.citation.engine import cite_document as _cd
-    return _cd(*args, **kwargs)
-
-
-# --- Web / Crawler ---
-
-
-def SmartCrawler(*args, **kwargs):
-    """Lazy import for :class:`runeextract.web.SmartCrawler`."""
-    from runeextract.web.crawler import SmartCrawler as _SC
-    return _SC(*args, **kwargs)
-
-
-def CrawlResult(*args, **kwargs):
-    """Lazy import for :class:`runeextract.web.CrawlResult`."""
-    from runeextract.web.crawler import CrawlResult as _CR
-    return _CR(*args, **kwargs)
-
-
-def smart_crawl(*args, **kwargs):
-    """Lazy import for :func:`runeextract.web.smart_crawl`."""
-    from runeextract.web.crawler import smart_crawl as _sc
-    return _sc(*args, **kwargs)
-
-
-def parse_sitemap(*args, **kwargs):
-    """Lazy import for :func:`runeextract.web.parse_sitemap`."""
-    from runeextract.web.sitemap import parse_sitemap as _ps
-    return _ps(*args, **kwargs)
-
-
-def discover_sitemap(*args, **kwargs):
-    """Lazy import for :func:`runeextract.web.discover_sitemap`."""
-    from runeextract.web.sitemap import discover_sitemap as _ds
-    return _ds(*args, **kwargs)
-
-
-def parse_feed(*args, **kwargs):
-    """Lazy import for :func:`runeextract.web.parse_feed`."""
-    from runeextract.web.feed import parse_feed as _pf
-    return _pf(*args, **kwargs)
-
-
-def discover_feed(*args, **kwargs):
-    """Lazy import for :func:`runeextract.web.discover_feed`."""
-    from runeextract.web.feed import discover_feed as _df
-    return _df(*args, **kwargs)
-
-
-# --- Transform / Pipeline ---
-
 
 class _Pipeline:
     """Proxy that supports both Pipeline(steps...) and Pipeline.extract()."""
@@ -393,655 +104,224 @@ class _Pipeline:
 Pipeline = _Pipeline()
 
 
-def PipelineStep(*args, **kwargs):
-    """Lazy import for :class:`runeextract.transform.PipelineStep`."""
-    from runeextract.transform.pipeline import PipelineStep as _PS
-    return _PS(*args, **kwargs)
-
-
-def PipelineContext(*args, **kwargs):
-    """Lazy import for :class:`runeextract.transform.PipelineContext`."""
-    from runeextract.transform.pipeline import PipelineContext as _PC
-    return _PC(*args, **kwargs)
-
-
-def PipelineResult(*args, **kwargs):
-    """Lazy import for :class:`runeextract.transform.PipelineResult`."""
-    from runeextract.transform.pipeline import PipelineResult as _PR
-    return _PR(*args, **kwargs)
-
-
-def run_pipeline(*args, **kwargs):
-    """Lazy import for :func:`runeextract.transform.run_pipeline`."""
-    from runeextract.transform.pipeline import run_pipeline as _rp
-    return _rp(*args, **kwargs)
-
-
-def DagPipeline(*args, **kwargs):
-    """Lazy import for :class:`runeextract.transform.DagPipeline`."""
-    from runeextract.transform.pipeline import DagPipeline as _D
-    return _D(*args, **kwargs)
-
-
-def ConditionalStep(*args, **kwargs):
-    """Lazy import for :class:`runeextract.transform.ConditionalStep`."""
-    from runeextract.transform.pipeline import ConditionalStep as _C
-    return _C(*args, **kwargs)
-
-
-def ParallelStep(*args, **kwargs):
-    """Lazy import for :class:`runeextract.transform.ParallelStep`."""
-    from runeextract.transform.pipeline import ParallelStep as _P
-    return _P(*args, **kwargs)
-
-
-def WaitStep(*args, **kwargs):
-    """Lazy import for :class:`runeextract.transform.WaitStep`."""
-    from runeextract.transform.pipeline import WaitStep as _W
-    return _W(*args, **kwargs)
-
-
-# --- File System Sync ---
-
-
-def DirectoryWatcher(*args, **kwargs):
-    """Lazy import for :class:`runeextract.sync.DirectoryWatcher`."""
-    from runeextract.sync.watcher import DirectoryWatcher as _DW
-    return _DW(*args, **kwargs)
-
-
-def FileEvent(*args, **kwargs):
-    """Lazy import for :class:`runeextract.sync.FileEvent`."""
-    from runeextract.sync.watcher import FileEvent as _FE
-    return _FE(*args, **kwargs)
-
-
-def poll_directory(*args, **kwargs):
-    """Lazy import for :func:`runeextract.sync.poll_directory`."""
-    from runeextract.sync.watcher import poll_directory as _pd
-    return _pd(*args, **kwargs)
-
-
-def FileSync(*args, **kwargs):
-    """Lazy import for :class:`runeextract.sync.FileSync`."""
-    from runeextract.sync.syncer import FileSync as _FS
-    return _FS(*args, **kwargs)
-
-
-def sync_directories(*args, **kwargs):
-    """Lazy import for :func:`runeextract.sync.sync_directories`."""
-    from runeextract.sync.syncer import sync_directories as _sd
-    return _sd(*args, **kwargs)
-
-
-def scan_and_extract(*args, **kwargs):
-    """Lazy import for :func:`runeextract.sync.scan_and_extract`."""
-    from runeextract.sync.extractor import scan_and_extract as _se
-    return _se(*args, **kwargs)
-
-
-def watch_and_extract(*args, **kwargs):
-    """Lazy import for :func:`runeextract.sync.watch_and_extract`."""
-    from runeextract.sync.extractor import watch_and_extract as _we
-    return _we(*args, **kwargs)
-
-
-# --- Agent SDK Integrations ---
-
-
-def mcp_tool_extract(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.mcp_tool_extract`."""
-    from runeextract.agent.mcp_server import mcp_tool_extract as _mcp
-    return _mcp(*args, **kwargs)
-
-
-def mcp_tool_extract_many(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.mcp_tool_extract_many`."""
-    from runeextract.agent.mcp_server import mcp_tool_extract_many as _mcp
-    return _mcp(*args, **kwargs)
-
-
-def mcp_tool_search(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.mcp_tool_search`."""
-    from runeextract.agent.mcp_server import mcp_tool_search as _mcp
-    return _mcp(*args, **kwargs)
-
-
-def RuneExtractLoader(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.RuneExtractLoader`."""
-    from runeextract.agent.langchain import RuneExtractLoader as _L
-    return _L(*args, **kwargs)
-
-
-def RuneExtractTransformer(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.RuneExtractTransformer`."""
-    from runeextract.agent.langchain import RuneExtractTransformer as _T
-    return _T(*args, **kwargs)
-
-
-def RuneExtractReader(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.RuneExtractReader`."""
-    from runeextract.agent.llamaindex import RuneExtractReader as _R
-    return _R(*args, **kwargs)
-
-
-def RuneExtractTool(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.RuneExtractTool`."""
-    from runeextract.agent.crewai import RuneExtractTool as _T
-    return _T(*args, **kwargs)
-
-
-def autogen_extract_tool(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.autogen_extract_tool`."""
-    from runeextract.agent.autogen import autogen_extract_tool as _at
-    return _at(*args, **kwargs)
-
-
-def mcp_tool_extract_url(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.mcp_tool_extract_url`."""
-    from runeextract.agent.mcp_server import mcp_tool_extract_url as _mcp
-    return _mcp(*args, **kwargs)
-
-
-def mcp_tool_ask(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.mcp_tool_ask`."""
-    from runeextract.agent.mcp_server import mcp_tool_ask as _mcp
-    return _mcp(*args, **kwargs)
-
-
-def mcp_tool_chunk(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.mcp_tool_chunk`."""
-    from runeextract.agent.mcp_server import mcp_tool_chunk as _mcp
-    return _mcp(*args, **kwargs)
-
-
-def run_mcp_server(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.run_mcp_server`."""
-    from runeextract.agent.mcp_server import run_mcp_server as _rms
-    return _rms(*args, **kwargs)
-
-
-def main_cli(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.main_cli`."""
-    from runeextract.agent.mcp_server import main_cli as _mc
-    return _mc(*args, **kwargs)
-
-
-def RuneExtractGraphTool(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.langgraph.RuneExtractGraphTool`."""
-    from runeextract.agent.langgraph import RuneExtractGraphTool as _REGT
-    return _REGT(*args, **kwargs)
-
-
-def RuneExtractSearchTool(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.langgraph.RuneExtractSearchTool`."""
-    from runeextract.agent.langgraph import RuneExtractSearchTool as _REST
-    return _REST(*args, **kwargs)
-
-
-def RuneExtractAskTool(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.langgraph.RuneExtractAskTool`."""
-    from runeextract.agent.langgraph import RuneExtractAskTool as _REAT
-    return _REAT(*args, **kwargs)
-
-
-def rune_extract_function_tool(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.openai_sdk.rune_extract_function_tool`."""
-    from runeextract.agent.openai_sdk import rune_extract_function_tool as _reft
-    return _reft(*args, **kwargs)
-
-
-def rune_extract_search_tool(*args, **kwargs):
-    """Lazy import for :func:`runeextract.agent.openai_sdk.rune_extract_search_tool`."""
-    from runeextract.agent.openai_sdk import rune_extract_search_tool as _rest
-    return _rest(*args, **kwargs)
-
-
-def RuneExtractAITool(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.pydantic_ai.RuneExtractAITool`."""
-    from runeextract.agent.pydantic_ai import RuneExtractAITool as _REAIT
-    return _REAIT(*args, **kwargs)
-
-
-def RuneExtractSearchAITool(*args, **kwargs):
-    """Lazy import for :class:`runeextract.agent.pydantic_ai.RuneExtractSearchAITool`."""
-    from runeextract.agent.pydantic_ai import RuneExtractSearchAITool as _RESAIT
-    return _RESAIT(*args, **kwargs)
-
-
-# --- Layout-aware parsing ---
-
-
-def LayoutElement(*args, **kwargs):
-    """Lazy import for :class:`runeextract.layout.LayoutElement`."""
-    from runeextract.layout.parser import LayoutElement as _LE
-    return _LE(*args, **kwargs)
-
-
-def BoundingBox(*args, **kwargs):
-    """Lazy import for :class:`runeextract.layout.BoundingBox`."""
-    from runeextract.layout.parser import BoundingBox as _BB
-    return _BB(*args, **kwargs)
-
-
-def LayoutParser(*args, **kwargs):
-    """Lazy import for :class:`runeextract.layout.LayoutParser`."""
-    from runeextract.layout.parser import LayoutParser as _LP
-    return _LP(*args, **kwargs)
-
-
-def parse_layout(*args, **kwargs):
-    """Lazy import for :func:`runeextract.layout.parse_layout`."""
-    from runeextract.layout.parser import parse_layout as _pl
-    return _pl(*args, **kwargs)
-
-
-def get_reading_order(*args, **kwargs):
-    """Lazy import for :func:`runeextract.layout.get_reading_order`."""
-    from runeextract.layout.parser import get_reading_order as _gro
-    return _gro(*args, **kwargs)
-
-
-# --- Document diff / version tracking ---
-
-
-def DiffChange(*args, **kwargs):
-    """Lazy import for :class:`runeextract.diff.DiffChange`."""
-    from runeextract.diff.comparator import DiffChange as _DC
-    return _DC(*args, **kwargs)
-
-
-def DiffResult(*args, **kwargs):
-    """Lazy import for :class:`runeextract.diff.DiffResult`."""
-    from runeextract.diff.comparator import DiffResult as _DR
-    return _DR(*args, **kwargs)
-
-
-def DocumentComparator(*args, **kwargs):
-    """Lazy import for :class:`runeextract.diff.DocumentComparator`."""
-    from runeextract.diff.comparator import DocumentComparator as _DC
-    return _DC(*args, **kwargs)
-
-
-def diff_documents(*args, **kwargs):
-    """Lazy import for :func:`runeextract.diff.diff_documents`."""
-    from runeextract.diff.comparator import diff_documents as _dd
-    return _dd(*args, **kwargs)
-
-
-def compare_files(*args, **kwargs):
-    """Lazy import for :func:`runeextract.diff.compare_files`."""
-    from runeextract.diff.comparator import compare_files as _cf
-    return _cf(*args, **kwargs)
-
-
-# --- ONNX Embeddings ---
-
-
-def ONNXEmbeddingModel(*args, **kwargs):
-    """Lazy import for :class:`runeextract.embeddings.ONNXEmbeddingModel`."""
-    from runeextract.embeddings.onnx import ONNXEmbeddingModel as _O
-    return _O(*args, **kwargs)
-
-
-def get_onnx_embedding(*args, **kwargs):
-    """Lazy import for :func:`runeextract.embeddings.get_onnx_embedding`."""
-    from runeextract.embeddings.onnx import get_onnx_embedding as _goe
-    return _goe(*args, **kwargs)
-
-
-# --- Cloud Storage Connectors ---
-
-
-def StorageConnector(*args, **kwargs):
-    """Lazy import for :class:`runeextract.storage.StorageConnector`."""
-    from runeextract.storage.connectors import StorageConnector as _SC
-    return _SC(*args, **kwargs)
-
-
-def S3Connector(*args, **kwargs):
-    """Lazy import for :class:`runeextract.storage.S3Connector`."""
-    from runeextract.storage.connectors import S3Connector as _S3
-    return _S3(*args, **kwargs)
-
-
-def GCSConnector(*args, **kwargs):
-    """Lazy import for :class:`runeextract.storage.GCSConnector`."""
-    from runeextract.storage.connectors import GCSConnector as _GCS
-    return _GCS(*args, **kwargs)
-
-
-def AzureConnector(*args, **kwargs):
-    """Lazy import for :class:`runeextract.storage.AzureConnector`."""
-    from runeextract.storage.connectors import AzureConnector as _A
-    return _A(*args, **kwargs)
-
-
-def get_storage_connector(*args, **kwargs):
-    """Lazy import for :func:`runeextract.storage.get_storage_connector`."""
-    from runeextract.storage.connectors import get_storage_connector as _gsc
-    return _gsc(*args, **kwargs)
-
-
-# --- Deduplication ---
-
-
-def MinHashDeduplicator(*args, **kwargs):
-    """Lazy import for :class:`runeextract.dedup.MinHashDeduplicator`."""
-    from runeextract.dedup.minhash import MinHashDeduplicator as _MD
-    return _MD(*args, **kwargs)
-
-
-def LSHDeduplicator(*args, **kwargs):
-    """Lazy import for :class:`runeextract.dedup.LSHDeduplicator`."""
-    from runeextract.dedup.minhash import LSHDeduplicator as _LD
-    return _LD(*args, **kwargs)
-
-
-def EmbeddingDeduplicator(*args, **kwargs):
-    """Lazy import for :class:`runeextract.dedup.EmbeddingDeduplicator`."""
-    from runeextract.dedup.minhash import EmbeddingDeduplicator as _ED
-    return _ED(*args, **kwargs)
-
-
-def deduplicate(*args, **kwargs):
-    """Lazy import for :func:`runeextract.dedup.deduplicate`."""
-    from runeextract.dedup.minhash import deduplicate as _dd
-    return _dd(*args, **kwargs)
-
-
-def deduplicate_documents(*args, **kwargs):
-    """Lazy import for :func:`runeextract.dedup.deduplicate_documents`."""
-    from runeextract.dedup.minhash import deduplicate_documents as _dd
-    return _dd(*args, **kwargs)
-
-
-def deduplicate_embeddings(*args, **kwargs):
-    """Lazy import for :func:`runeextract.dedup.deduplicate_embeddings`."""
-    from runeextract.dedup.minhash import deduplicate_embeddings as _de
-    return _de(*args, **kwargs)
-
-
-# --- WebSocket Server ---
-
-
-def ExtractionServer(*args, **kwargs):
-    """Lazy import for :class:`runeextract.server.ExtractionServer`."""
-    from runeextract.server import ExtractionServer as _ES
-    return _ES(*args, **kwargs)
-
-
-# --- Visual Document Understanding ---
-
-
-def VisionAnalyzer(*args, **kwargs):
-    """Lazy import for :class:`runeextract.vision.VisionAnalyzer`."""
-    from runeextract.vision.analyzer import VisionAnalyzer as _VA
-    return _VA(*args, **kwargs)
-
-
-def ChartInterpretation(*args, **kwargs):
-    """Lazy import for :class:`runeextract.vision.ChartInterpretation`."""
-    from runeextract.vision.analyzer import ChartInterpretation as _CI
-    return _CI(*args, **kwargs)
-
-
-def FigureCaption(*args, **kwargs):
-    """Lazy import for :class:`runeextract.vision.FigureCaption`."""
-    from runeextract.vision.analyzer import FigureCaption as _FC
-    return _FC(*args, **kwargs)
-
-
-def describe_image(*args, **kwargs):
-    """Lazy import for :func:`runeextract.vision.describe_image`."""
-    from runeextract.vision.analyzer import describe_image as _di
-    return _di(*args, **kwargs)
-
-
-def interpret_chart(*args, **kwargs):
-    """Lazy import for :func:`runeextract.vision.interpret_chart`."""
-    from runeextract.vision.analyzer import interpret_chart as _ic
-    return _ic(*args, **kwargs)
-
-
-def caption_figure(*args, **kwargs):
-    """Lazy import for :func:`runeextract.vision.caption_figure`."""
-    from runeextract.vision.analyzer import caption_figure as _cf
-    return _cf(*args, **kwargs)
-
-
-# --- Document Graph / GraphRAG ---
-
-
-def GraphNode(*args, **kwargs):
-    """Lazy import for :class:`runeextract.graph.GraphNode`."""
-    from runeextract.graph.builder import GraphNode as _GN
-    return _GN(*args, **kwargs)
-
-
-def GraphEdge(*args, **kwargs):
-    """Lazy import for :class:`runeextract.graph.GraphEdge`."""
-    from runeextract.graph.builder import GraphEdge as _GE
-    return _GE(*args, **kwargs)
-
-
-def DocumentGraph(*args, **kwargs):
-    """Lazy import for :class:`runeextract.graph.DocumentGraph`."""
-    from runeextract.graph.builder import DocumentGraph as _DG
-    return _DG(*args, **kwargs)
-
-
-def GraphBuilder(*args, **kwargs):
-    """Lazy import for :class:`runeextract.graph.GraphBuilder`."""
-    from runeextract.graph.builder import GraphBuilder as _GB
-    return _GB(*args, **kwargs)
-
-
-def build_document_graph(*args, **kwargs):
-    """Lazy import for :func:`runeextract.graph.build_document_graph`."""
-    from runeextract.graph.builder import build_document_graph as _bdg
-    return _bdg(*args, **kwargs)
-
-
-def query_graph(*args, **kwargs):
-    """Lazy import for :func:`runeextract.graph.query_graph`."""
-    from runeextract.graph.builder import query_graph as _qg
-    return _qg(*args, **kwargs)
-
-
-# --- Pre-signed URL Extraction ---
-
-
-def extract_from_presigned_url(*args, **kwargs):
-    """Lazy import for :func:`runeextract.storage.presigned.extract_from_presigned_url`."""
-    from runeextract.storage.presigned import extract_from_presigned_url as _epu
-    return _epu(*args, **kwargs)
-
-
-# --- Table of Contents ---
-
-
-def TOCEntry(*args, **kwargs):
-    """Lazy import for :class:`runeextract.toc.TOCEntry`."""
-    from runeextract.toc import TOCEntry as _TE
-    return _TE(*args, **kwargs)
-
-
-def TOCParser(*args, **kwargs):
-    """Lazy import for :class:`runeextract.toc.TOCParser`."""
-    from runeextract.toc import TOCParser as _TP
-    return _TP(*args, **kwargs)
-
-
-def extract_toc(*args, **kwargs):
-    """Lazy import for :func:`runeextract.toc.extract_toc`."""
-    from runeextract.toc import extract_toc as _et
-    return _et(*args, **kwargs)
-
-
-def toc_to_markdown(*args, **kwargs):
-    """Lazy import for :func:`runeextract.toc.toc_to_markdown`."""
-    from runeextract.toc import toc_to_markdown as _ttm
-    return _ttm(*args, **kwargs)
-
-
-def toc_to_dict(*args, **kwargs):
-    """Lazy import for :func:`runeextract.toc.toc_to_dict`."""
-    from runeextract.toc import toc_to_dict as _ttd
-    return _ttd(*args, **kwargs)
-
-
-def toc_to_json(*args, **kwargs):
-    """Lazy import for :func:`runeextract.toc.toc_to_json`."""
-    from runeextract.toc import toc_to_json as _ttj
-    return _ttj(*args, **kwargs)
-
-
-# --- Multi-Language OCR ---
-
-
-def OCRLanguageDetector(*args, **kwargs):
-    """Lazy import for :class:`runeextract.ocr.OCRLanguageDetector`."""
-    from runeextract.ocr import OCRLanguageDetector as _OLD
-    return _OLD(*args, **kwargs)
-
-
-def detect_ocr_language(*args, **kwargs):
-    """Lazy import for :func:`runeextract.ocr.detect_ocr_language`."""
-    from runeextract.ocr import detect_ocr_language as _dol
-    return _dol(*args, **kwargs)
-
-
-def get_tesseract_langs(*args, **kwargs):
-    """Lazy import for :func:`runeextract.ocr.get_tesseract_langs`."""
-    from runeextract.ocr import get_tesseract_langs as _gtl
-    return _gtl(*args, **kwargs)
-
-
-def get_ocr_languages(*args, **kwargs):
-    """Lazy import for :func:`runeextract.ocr.get_ocr_languages`."""
-    from runeextract.ocr import get_ocr_languages as _gol
-    return _gol(*args, **kwargs)
-
-
-# --- Quality Levels / Fast Mode ---
-
-
-def QualityLevel(*args, **kwargs):
-    """Lazy import for :class:`runeextract.quality.QualityLevel`."""
-    from runeextract.quality import QualityLevel as _QL
-    return _QL(*args, **kwargs) if args or kwargs else _QL
-
-
-def QualityConfig(*args, **kwargs):
-    """Lazy import for :class:`runeextract.quality.QualityConfig`."""
-    from runeextract.quality import QualityConfig as _QC
-    return _QC(*args, **kwargs)
-
-
-def extract_with_quality(*args, **kwargs):
-    """Lazy import for :func:`runeextract.quality.extract_with_quality`."""
-    from runeextract.quality import extract_with_quality as _ewq
-    return _ewq(*args, **kwargs)
-
-
-def FastMode(*args, **kwargs):
-    """Lazy import for :class:`runeextract.quality.FastMode`."""
-    from runeextract.quality import FastMode as _FM
-    return _FM(*args, **kwargs)
-
-
-def configure_quality(*args, **kwargs):
-    """Lazy import for :func:`runeextract.quality.configure_quality`."""
-    from runeextract.quality import configure_quality as _cq
-    return _cq(*args, **kwargs)
-
-
-# --- Signing ---
-
-
-def DocumentSigner(*args, **kwargs):
-    """Lazy import for :class:`runeextract.signing.DocumentSigner`."""
-    from runeextract.signing import DocumentSigner as _DS
-    return _DS(*args, **kwargs)
-
-
-def DocumentVerifier(*args, **kwargs):
-    """Lazy import for :class:`runeextract.signing.DocumentVerifier`."""
-    from runeextract.signing import DocumentVerifier as _DV
-    return _DV(*args, **kwargs)
-
-
-def sign_document(*args, **kwargs):
-    """Lazy import for :func:`runeextract.signing.sign_document`."""
-    from runeextract.signing import sign_document as _sd
-    return _sd(*args, **kwargs)
-
-
-def verify_document(*args, **kwargs):
-    """Lazy import for :func:`runeextract.signing.verify_document`."""
-    from runeextract.signing import verify_document as _vd
-    return _vd(*args, **kwargs)
-
-
-# --- Server ---
-
-
-def ExtractionServer(*args, **kwargs):
-    """Lazy import for :class:`runeextract.server.ExtractionServer`."""
-    from runeextract.server import ExtractionServer as _ES
-    return _ES(*args, **kwargs)
-
-
-def run_server(*args, **kwargs):
-    """Lazy import for :func:`runeextract.server.run_server`."""
-    from runeextract.server import run_server as _rs
-    return _rs(*args, **kwargs)
-
-
-async def start_extraction_server(*args, **kwargs):
-    """Lazy import for :func:`runeextract.server.start_extraction_server`."""
-    from runeextract.server import start_extraction_server as _ses
-    return await _ses(*args, **kwargs)
-
-
-# --- Export ---
-
-
-def to_ragas(*args, **kwargs):
-    """Lazy import for :func:`runeextract.export.to_ragas`."""
-    from runeextract.export import to_ragas as _tr
-    return _tr(*args, **kwargs)
-
-
-def to_dspy(*args, **kwargs):
-    """Lazy import for :func:`runeextract.export.to_dspy`."""
-    from runeextract.export import to_dspy as _td
-    return _td(*args, **kwargs)
-
-
-def to_haystack(*args, **kwargs):
-    """Lazy import for :func:`runeextract.export.to_haystack`."""
-    from runeextract.export import to_haystack as _th
-    return _th(*args, **kwargs)
-
-
-def to_llama_index(*args, **kwargs):
-    """Lazy import for :func:`runeextract.export.to_llama_index`."""
-    from runeextract.export import to_llama_index as _tli
-    return _tli(*args, **kwargs)
-
-
-# --- RAG Fine-Tuning ---
-
-
-def FineTuneExample(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.fine_tune.FineTuneExample`."""
-    from runeextract.rag.fine_tune import FineTuneExample as _FTE
-    return _FTE(*args, **kwargs)
-
-
-def FineTuneDataset(*args, **kwargs):
-    """Lazy import for :class:`runeextract.rag.fine_tune.FineTuneDataset`."""
-    from runeextract.rag.fine_tune import FineTuneDataset as _FTD
-    return _FTD(*args, **kwargs)
+# ── Module-level lazy import dispatch ──────────────────────────────────────
+# All public API items are loaded on first access via __getattr__.
+# This replaces ~95 hand-written lazy wrapper functions with a single dispatch.
+
+_LAZY_IMPORTS = {
+    # Core extraction
+    "extract": "runeextract.core.extraction:extract",
+    "extract_from_bytes": "runeextract.core.extraction:extract_from_bytes",
+    "extract_from_string": "runeextract.core.extraction:extract_from_string",
+    "extract_many": "runeextract.core.extraction:extract_many",
+    "extract_many_with_errors": "runeextract.core.extraction:extract_many_with_errors",
+    "extract_async": "runeextract.core.extraction:extract_async",
+    "extract_many_async": "runeextract.core.extraction:extract_many_async",
+    "extract_stream": "runeextract.core.extraction:extract_stream",
+    "extract_and_index": "runeextract.core.extraction:extract_and_index",
+    "extract_crawl": "runeextract.core.extraction:extract_crawl",
+    # Async extractor
+    "extract_async_url": "runeextract.core.async_extractor:extract_async_url",
+    "extract_many_async_url": "runeextract.core.async_extractor:extract_many_async_url",
+    "batch_process": "runeextract.core.async_extractor:batch_process",
+    "ProcessPoolExtractor": "runeextract.core.async_extractor:ProcessPoolExtractor",
+    "cleanup": "runeextract.core.async_extractor:cleanup",
+    # RAG
+    "AutoRAG": "runeextract.rag.auto_pipeline:AutoRAG",
+    "auto_rag": "runeextract.rag.auto_pipeline:auto_rag",
+    "instant_rag": "runeextract.rag.instant:instant_rag",
+    "RobustRAG": "runeextract.rag.robust_rag:RobustRAG",
+    "KnowledgeBase": "runeextract.rag.knowledge_base:KnowledgeBase",
+    "IndexVersioning": "runeextract.rag.versioning:IndexVersioning",
+    "BudgetManager": "runeextract.rag.budget:BudgetManager",
+    "BudgetConfig": "runeextract.rag.budget:BudgetConfig",
+    "BudgetExceededError": "runeextract.rag.budget:BudgetExceededError",
+    "DedupEngine": "runeextract.rag.dedup_engine:DedupEngine",
+    "DedupReport": "runeextract.rag.dedup_engine:DedupReport",
+    "RAGDebugger": "runeextract.rag.debugger:RAGDebugger",
+    "ConfidenceScorer": "runeextract.rag.confidence:ConfidenceScorer",
+    "QueryRouter": "runeextract.rag.routing:QueryRouter",
+    "SmartQueryRouter": "runeextract.rag.routing:SmartQueryRouter",
+    "RouteDecision": "runeextract.rag.routing:RouteDecision",
+    "QueryAnalyzer": "runeextract.rag.query_analyzer:QueryAnalyzer",
+    # RAG audit features
+    "PersistentEmbeddingCache": "runeextract.rag.embed_cache:PersistentEmbeddingCache",
+    "IndexPersister": "runeextract.rag.persistence:IndexPersister",
+    "IndexState": "runeextract.rag.persistence:IndexState",
+    "TieredIndex": "runeextract.rag.tiered_index:TieredIndex",
+    "TierConfig": "runeextract.rag.tiered_index:TierConfig",
+    "MultiTenantRAG": "runeextract.rag.tenant:MultiTenantRAG",
+    "TenantStore": "runeextract.rag.tenant:TenantStore",
+    "GraphRAGQuery": "runeextract.rag.graph_rag:GraphRAGQuery",
+    "RAGEvalSuite": "runeextract.rag.eval_suite:RAGEvalSuite",
+    "EvalQuestion": "runeextract.rag.eval_suite:EvalQuestion",
+    "EvalResult": "runeextract.rag.eval_suite:EvalResult",
+    "Scorecard": "runeextract.rag.eval_suite:Scorecard",
+    "MiddlewarePipeline": "runeextract.rag.middleware:MiddlewarePipeline",
+    "RAGMiddleware": "runeextract.rag.middleware:RAGMiddleware",
+    "LoggingMiddleware": "runeextract.rag.middleware:LoggingMiddleware",
+    "TimingMiddleware": "runeextract.rag.middleware:TimingMiddleware",
+    "CacheMiddleware": "runeextract.rag.middleware:CacheMiddleware",
+    "FallbackMiddleware": "runeextract.rag.middleware:FallbackMiddleware",
+    "apply_middleware": "runeextract.rag.middleware:apply_middleware",
+    # Fine-tuning
+    "FineTuneExample": "runeextract.rag.fine_tune:FineTuneExample",
+    "FineTuneDataset": "runeextract.rag.fine_tune:FineTuneDataset",
+    "generate_fine_tuning_data": "runeextract.rag.fine_tune:generate_fine_tuning_data",
+    # Security
+    "scan_secrets": "runeextract.utils.secrets:scan_secrets",
+    "redact_secrets": "runeextract.utils.secrets:redact_secrets",
+    "MemoryProfiler": "runeextract.utils.memory:MemoryProfiler",
+    "DifferentialPrivacyEngine": "runeextract.utils.privacy:DifferentialPrivacyEngine",
+    "SecretFinding": "runeextract.utils.secrets:SecretFinding",
+    # Structured extraction
+    "StructuredExtractor": "runeextract.structured.extractor:StructuredExtractor",
+    "extract_structured": "runeextract.structured.extractor:extract_structured",
+    "StructuredExtractionError": "runeextract.exceptions:StructuredExtractionError",
+    # Citation
+    "CitationEngine": "runeextract.citation.engine:CitationEngine",
+    "CitationResult": "runeextract.citation.engine:CitationResult",
+    "cite_document": "runeextract.citation.engine:cite_document",
+    # Web
+    "SmartCrawler": "runeextract.web.crawler:SmartCrawler",
+    "CrawlResult": "runeextract.web.crawler:CrawlResult",
+    "smart_crawl": "runeextract.web.crawler:smart_crawl",
+    "parse_sitemap": "runeextract.web.sitemap:parse_sitemap",
+    "discover_sitemap": "runeextract.web.sitemap:discover_sitemap",
+    "parse_feed": "runeextract.web.feed:parse_feed",
+    "discover_feed": "runeextract.web.feed:discover_feed",
+    # Transform / Pipeline
+    "PipelineStep": "runeextract.transform.pipeline:PipelineStep",
+    "PipelineContext": "runeextract.transform.pipeline:PipelineContext",
+    "PipelineResult": "runeextract.transform.pipeline:PipelineResult",
+    "run_pipeline": "runeextract.transform.pipeline:run_pipeline",
+    "DagPipeline": "runeextract.transform.pipeline:DagPipeline",
+    "ConditionalStep": "runeextract.transform.pipeline:ConditionalStep",
+    "ParallelStep": "runeextract.transform.pipeline:ParallelStep",
+    "WaitStep": "runeextract.transform.pipeline:WaitStep",
+    # Sync
+    "DirectoryWatcher": "runeextract.sync.watcher:DirectoryWatcher",
+    "FileEvent": "runeextract.sync.watcher:FileEvent",
+    "FileSync": "runeextract.sync.syncer:FileSync",
+    "poll_directory": "runeextract.sync.extractor:poll_directory",
+    "sync_directories": "runeextract.sync.syncer:sync_directories",
+    "scan_and_extract": "runeextract.sync.extractor:scan_and_extract",
+    "watch_and_extract": "runeextract.sync.extractor:watch_and_extract",
+    # Agent / MCP
+    "mcp_tool_extract": "runeextract.agent.mcp_server:mcp_tool_extract",
+    "mcp_tool_extract_many": "runeextract.agent.mcp_server:mcp_tool_extract_many",
+    "mcp_tool_search": "runeextract.agent.mcp_server:mcp_tool_search",
+    "mcp_tool_extract_url": "runeextract.agent.mcp_server:mcp_tool_extract_url",
+    "mcp_tool_ask": "runeextract.agent.mcp_server:mcp_tool_ask",
+    "mcp_tool_chunk": "runeextract.agent.mcp_server:mcp_tool_chunk",
+    "run_mcp_server": "runeextract.agent.mcp_server:run_mcp_server",
+    "RuneExtractLoader": "runeextract.agent.langchain:RuneExtractLoader",
+    "RuneExtractTransformer": "runeextract.agent.langchain:RuneExtractTransformer",
+    "RuneExtractReader": "runeextract.agent.llamaindex:RuneExtractReader",
+    "RuneExtractTool": "runeextract.agent.crewai:RuneExtractTool",
+    "autogen_extract_tool": "runeextract.agent.autogen:autogen_extract_tool",
+    "RuneExtractGraphTool": "runeextract.agent.langgraph:RuneExtractGraphTool",
+    "RuneExtractSearchTool": "runeextract.agent.langgraph:RuneExtractSearchTool",
+    "RuneExtractAskTool": "runeextract.agent.langgraph:RuneExtractAskTool",
+    "main_cli": "runeextract.cli.main:main_cli",
+    # Layout
+    "LayoutElement": "runeextract.layout.parser:LayoutElement",
+    "BoundingBox": "runeextract.layout.parser:BoundingBox",
+    "LayoutParser": "runeextract.layout.parser:LayoutParser",
+    "parse_layout": "runeextract.layout.parser:parse_layout",
+    "get_reading_order": "runeextract.layout.parser:get_reading_order",
+    # Diff
+    "DiffChange": "runeextract.diff.comparator:DiffChange",
+    "DiffResult": "runeextract.diff.comparator:DiffResult",
+    "DocumentComparator": "runeextract.diff.comparator:DocumentComparator",
+    "diff_documents": "runeextract.diff.comparator:diff_documents",
+    "compare_files": "runeextract.diff.comparator:compare_files",
+    # ONNX embeddings
+    "ONNXEmbeddingModel": "runeextract.embeddings.onnx:ONNXEmbeddingModel",
+    "get_onnx_embedding": "runeextract.embeddings.onnx:get_onnx_embedding",
+    # Storage
+    "StorageConnector": "runeextract.storage.connectors:StorageConnector",
+    "S3Connector": "runeextract.storage.connectors:S3Connector",
+    "GCSConnector": "runeextract.storage.connectors:GCSConnector",
+    "AzureConnector": "runeextract.storage.connectors:AzureConnector",
+    "get_storage_connector": "runeextract.storage.connectors:get_storage_connector",
+    "extract_from_presigned_url": "runeextract.storage.presigned:extract_from_presigned_url",
+    # Graph
+    "build_document_graph": "runeextract.graph.builder:build_document_graph",
+    "query_graph": "runeextract.graph.builder:query_graph",
+    "GraphNode": "runeextract.graph.builder:GraphNode",
+    "GraphEdge": "runeextract.graph.builder:GraphEdge",
+    "DocumentGraph": "runeextract.graph.builder:DocumentGraph",
+    "GraphBuilder": "runeextract.graph.builder:GraphBuilder",
+    # Vision
+    "VisionAnalyzer": "runeextract.vision.analyzer:VisionAnalyzer",
+    "ChartInterpretation": "runeextract.vision.analyzer:ChartInterpretation",
+    "FigureCaption": "runeextract.vision.analyzer:FigureCaption",
+    "describe_image": "runeextract.vision.analyzer:describe_image",
+    "interpret_chart": "runeextract.vision.analyzer:interpret_chart",
+    "caption_figure": "runeextract.vision.analyzer:caption_figure",
+    # OCR
+    "OCRLanguageDetector": "runeextract.ocr:OCRLanguageDetector",
+    "detect_ocr_language": "runeextract.ocr:detect_ocr_language",
+    "get_tesseract_langs": "runeextract.ocr:get_tesseract_langs",
+    "get_ocr_languages": "runeextract.ocr:get_ocr_languages",
+    # TOC
+    "TOCEntry": "runeextract.toc:TOCEntry",
+    "TOCParser": "runeextract.toc:TOCParser",
+    "extract_toc": "runeextract.toc:extract_toc",
+    "toc_to_markdown": "runeextract.toc:toc_to_markdown",
+    "toc_to_dict": "runeextract.toc:toc_to_dict",
+    "toc_to_json": "runeextract.toc:toc_to_json",
+    # Dedup
+    "MinHashDeduplicator": "runeextract.dedup.minhash:MinHashDeduplicator",
+    "LSHDeduplicator": "runeextract.dedup.minhash:LSHDeduplicator",
+    "EmbeddingDeduplicator": "runeextract.dedup.minhash:EmbeddingDeduplicator",
+    "deduplicate": "runeextract.dedup.minhash:deduplicate",
+    "deduplicate_documents": "runeextract.dedup.minhash:deduplicate_documents",
+    "deduplicate_embeddings": "runeextract.dedup.minhash:deduplicate_embeddings",
+    # Signing
+    "DocumentSigner": "runeextract.signing.signer:DocumentSigner",
+    "DocumentVerifier": "runeextract.signing.signer:DocumentVerifier",
+    "SignatureInfo": "runeextract.signing.signer:SignatureInfo",
+    "sign_document": "runeextract.signing.signer:sign_document",
+    "verify_document": "runeextract.signing.signer:verify_document",
+    "compute_document_hash": "runeextract.signing.signer:compute_document_hash",
+    "generate_signing_keypair": "runeextract.signing.signer:generate_signing_keypair",
+    # Server
+    "ExtractionServer": "runeextract.server.server:ExtractionServer",
+    "run_server": "runeextract.server.server:run_server",
+    "start_extraction_server": "runeextract.server.server:start_extraction_server",
+    "WebSocketHandler": "runeextract.server.server:WebSocketHandler",
+    # Quality
+    "QualityLevel": "runeextract.quality:QualityLevel",
+    "QualityConfig": "runeextract.quality:QualityConfig",
+    "extract_with_quality": "runeextract.quality:extract_with_quality",
+    "FastMode": "runeextract.quality:FastMode",
+    "configure_quality": "runeextract.quality:configure_quality",
+    # Export formats
+    "to_ragas": "runeextract.export:to_ragas",
+    "to_dspy": "runeextract.export:to_dspy",
+    "to_haystack": "runeextract.export:to_haystack",
+    "to_llama_index": "runeextract.export:to_llama_index",
+    "to_jsonl": "runeextract.export:to_jsonl",
+    "ExportFormat": "runeextract.export:ExportFormat",
+    # Benchmarks
+    "BenchmarkRunner": "runeextract.benchmarks:BenchmarkRunner",
+    "run_all_benchmarks": "runeextract.benchmarks:run_all_benchmarks",
+    # CLI
+    "doctor": "runeextract.cli.doctor:doctor",
+    "eval_cli": "runeextract.cli.eval_cli:eval_cli",
+}
+
+
+def __getattr__(name):
+    """Lazy-import any name listed in _LAZY_IMPORTS on first access."""
+    if name in _LAZY_IMPORTS:
+        import importlib
+        path = _LAZY_IMPORTS[name]
+        module_path, _, attr_name = path.partition(":")
+        module = importlib.import_module(module_path)
+        attr = getattr(module, attr_name)
+        setattr(__import__(__name__), name, attr)
+        return attr
+    raise AttributeError(f"module 'runeextract' has no attribute '{name}'")
